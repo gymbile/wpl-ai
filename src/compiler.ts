@@ -1,0 +1,949 @@
+// ---------------------------------------------------------------------------
+// WPL-AI Compiler: AST -> WPL JSON
+// ---------------------------------------------------------------------------
+// Ported from gymbile_backend/lib/gymbile_backend/wellness_plans/wpl_ai/compiler.ex
+// ---------------------------------------------------------------------------
+
+import type {
+  Document,
+  Header,
+  Goal,
+  Target,
+  Milestone,
+  Requirements,
+  Equipment,
+  Contraindication,
+  TimeCommitment,
+  Personalization,
+  Input,
+  Rule,
+  Condition,
+  Action,
+  Phase,
+  Week,
+  Day,
+  Block,
+  Activity,
+  Exercise,
+  Cardio,
+  Nutrition,
+  Meditation,
+  Recovery,
+  RecoveryExercise,
+  Habit,
+  SimpleActivity,
+  Duration,
+  Weight,
+  IntervalPattern,
+  Macros,
+  NutritionTiming,
+  Progress,
+  Checkpoint,
+  PointsConfig,
+  PointsRule,
+  Notification,
+  RepsSpec,
+} from "./types.js";
+
+import type { CompileError } from "./errors.js";
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+export function compile(
+  doc: Document,
+): { ok: true; json: Record<string, unknown> } | { ok: false; errors: CompileError[] } {
+  try {
+    const plan = compileDocument(doc);
+    const json: Record<string, unknown> = {
+      $schema: "https://wpl.dev/schemas/wpl/v1.schema.json",
+      version: "1.0.0",
+      plan,
+    };
+    return { ok: true, json };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      ok: false,
+      errors: [
+        {
+          kind: "compile",
+          type: "constraint_violation",
+          message,
+          path: null,
+          details: null,
+        },
+      ],
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Remove keys whose value is null or undefined from a plain object. */
+function compact(obj: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const key of Object.keys(obj)) {
+    const v = obj[key];
+    if (v !== null && v !== undefined) {
+      result[key] = v;
+    }
+  }
+  return result;
+}
+
+/** Generate a short random ID: `prefix_` + 8 hex chars. */
+function generateShortId(prefix: string): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(4));
+  const hex = Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+  return `${prefix}_${hex}`;
+}
+
+// ---------------------------------------------------------------------------
+// Document
+// ---------------------------------------------------------------------------
+
+function compileDocument(doc: Document): Record<string, unknown> {
+  const plan: Record<string, unknown> = {
+    id: crypto.randomUUID(),
+    name: doc.header.name,
+    type: doc.header.type,
+    visibility: doc.header.visibility ?? "private",
+    metadata: compileMetadata(doc.header),
+    goals: compileGoals(doc.goals ?? []),
+    requirements: compileRequirements(doc.requirements),
+    personalization: compilePersonalization(doc.personalization),
+    phases: compilePhases(doc.phases ?? []),
+    progress: compileProgress(doc.progress),
+    notifications: compileNotifications(doc.notifications),
+  };
+
+  return compact(plan);
+}
+
+// ---------------------------------------------------------------------------
+// Metadata
+// ---------------------------------------------------------------------------
+
+function compileMetadata(header: Header): Record<string, unknown> {
+  const now = new Date().toISOString();
+  const metadata: Record<string, unknown> = {
+    created_at: now,
+    updated_at: now,
+  };
+
+  if (header.tags) {
+    metadata.tags = header.tags;
+  }
+  if (header.difficulty) {
+    metadata.difficulty = header.difficulty;
+  }
+  if (header.language) {
+    metadata.language = header.language;
+  }
+  if (header.duration) {
+    const days = durationToDays(header.duration);
+    if (days !== null) {
+      metadata.estimated_duration_days = days;
+    }
+  }
+
+  return metadata;
+}
+
+// ---------------------------------------------------------------------------
+// Goals
+// ---------------------------------------------------------------------------
+
+function compileGoals(goals: Goal[]): Record<string, unknown>[] {
+  return goals.map((goal, i) => compileGoal(goal, i + 1));
+}
+
+function compileGoal(goal: Goal, index: number): Record<string, unknown> {
+  const compiled: Record<string, unknown> = {
+    id: `goal_${index}`,
+    type: goal.priority ?? "primary",
+    category: goal.category,
+  };
+
+  if (goal.name) {
+    compiled.name = goal.name;
+  }
+  if (goal.description) {
+    compiled.description = goal.description;
+  }
+  if (goal.target) {
+    compiled.target = compileTarget(goal.target);
+  }
+  if (goal.deadline) {
+    compiled.deadline = goal.deadline;
+  }
+  if (goal.milestones && goal.milestones.length > 0) {
+    compiled.milestones = goal.milestones.map(compileMilestone);
+  }
+
+  return compiled;
+}
+
+function compileTarget(target: Target): Record<string, unknown> {
+  return {
+    metric: target.metric,
+    target_value: target.value,
+    unit: target.unit,
+    measurement_type: target.measurement_type ?? "absolute",
+  };
+}
+
+function compileMilestone(milestone: Milestone): Record<string, unknown> {
+  const compiled: Record<string, unknown> = {
+    id: generateShortId("m"),
+    name: milestone.name,
+  };
+
+  if (milestone.at_value != null) {
+    compiled.target_value = milestone.at_value;
+  }
+  if (milestone.reward_points != null) {
+    compiled.reward_points = milestone.reward_points;
+  }
+
+  return compiled;
+}
+
+// ---------------------------------------------------------------------------
+// Requirements
+// ---------------------------------------------------------------------------
+
+function compileRequirements(req: Requirements | null): Record<string, unknown> {
+  if (!req) return {};
+
+  const compiled: Record<string, unknown> = {};
+
+  if (req.age_range) {
+    compiled.min_age = req.age_range[0];
+    compiled.max_age = req.age_range[1];
+  }
+
+  if (req.fitness_levels && req.fitness_levels.length > 0) {
+    compiled.fitness_level = req.fitness_levels;
+  }
+
+  if (req.equipment && req.equipment.length > 0) {
+    compiled.equipment = req.equipment.map(compileEquipment);
+  }
+
+  if (req.contraindications && req.contraindications.length > 0) {
+    compiled.contraindications = req.contraindications.map(compileContraindication);
+  }
+
+  if (req.time_commitment) {
+    compiled.time_commitment = compileTimeCommitment(req.time_commitment);
+  }
+
+  return compiled;
+}
+
+function compileEquipment(equip: Equipment): Record<string, unknown> {
+  const compiled: Record<string, unknown> = {
+    id: equip.name.toLowerCase().replace(/ /g, "_"),
+    name: equip.name,
+    required: equip.required ?? false,
+  };
+
+  if (equip.alternatives && equip.alternatives.length > 0) {
+    compiled.alternatives = equip.alternatives;
+  }
+
+  return compiled;
+}
+
+function compileContraindication(contra: Contraindication): Record<string, unknown> {
+  const compiled: Record<string, unknown> = {
+    condition: contra.condition,
+    action: contra.action ?? "exclude",
+  };
+
+  if (contra.affects && contra.affects.length > 0) {
+    compiled.affected_activities = contra.affects;
+  }
+
+  return compiled;
+}
+
+function compileTimeCommitment(tc: TimeCommitment): Record<string, unknown> {
+  const compiled: Record<string, unknown> = {};
+
+  if (tc.days_per_week) {
+    compiled.min_days_per_week = tc.days_per_week[0];
+    compiled.max_days_per_week = tc.days_per_week[1];
+  }
+
+  if (tc.minutes_per_day) {
+    compiled.min_minutes_per_day = tc.minutes_per_day[0];
+    compiled.max_minutes_per_day = tc.minutes_per_day[1];
+  }
+
+  return compiled;
+}
+
+// ---------------------------------------------------------------------------
+// Personalization
+// ---------------------------------------------------------------------------
+
+function compilePersonalization(pers: Personalization | null): Record<string, unknown> {
+  if (!pers) return { inputs: [], rules: [] };
+
+  return {
+    inputs: compileInputs(pers.inputs ?? []),
+    rules: compileRules(pers.rules ?? []),
+  };
+}
+
+function compileInputs(inputs: Input[]): Record<string, unknown>[] {
+  return inputs.map((input, i) => compileInput(input, i + 1));
+}
+
+function compileInput(input: Input, index: number): Record<string, unknown> {
+  const compiled: Record<string, unknown> = {
+    id: input.name ?? `input_${index}`,
+    type: input.type ?? "string",
+    source: input.source ?? "questionnaire",
+  };
+
+  if (input.label) {
+    compiled.label = input.label;
+  }
+  if (input.options && input.options.length > 0) {
+    compiled.options = input.options;
+  }
+
+  return compiled;
+}
+
+function compileRules(rules: Rule[]): Record<string, unknown>[] {
+  return rules.map((rule, i) => compileRule(rule, i + 1));
+}
+
+function compileRule(rule: Rule, index: number): Record<string, unknown> {
+  return {
+    id: `rule_${index}`,
+    condition: compileCondition(rule.condition),
+    actions: rule.actions.map(compileAction),
+  };
+}
+
+function compileCondition(cond: Condition): Record<string, unknown> {
+  if (cond.type === "compound") {
+    return {
+      operator: cond.operator!,
+      conditions: (cond.conditions ?? []).map((c) => ({
+        field: c.field,
+        op: c.op!,
+        value: c.value,
+      })),
+    };
+  }
+
+  // simple
+  return {
+    field: cond.field,
+    op: cond.op!,
+    value: cond.value,
+  };
+}
+
+function compileAction(action: Action): Record<string, unknown> {
+  const base: Record<string, unknown> = { type: action.type };
+  const params = action.params ?? {};
+
+  for (const [k, v] of Object.entries(params)) {
+    base[k] = v;
+  }
+
+  return base;
+}
+
+// ---------------------------------------------------------------------------
+// Phases
+// ---------------------------------------------------------------------------
+
+function compilePhases(phases: Phase[]): Record<string, unknown>[] {
+  return phases.map((phase, i) => compilePhase(phase, i + 1));
+}
+
+function compilePhase(phase: Phase, index: number): Record<string, unknown> {
+  const compiled: Record<string, unknown> = {
+    id: `phase_${index}`,
+    name: phase.name,
+    order: index,
+  };
+
+  if (phase.description) {
+    compiled.description = phase.description;
+  }
+  if (phase.duration) {
+    compiled.duration = compileDuration(phase.duration);
+  }
+  if (phase.weeks && phase.weeks.length > 0) {
+    compiled.weeks = compileWeeks(phase.weeks);
+  }
+
+  return compiled;
+}
+
+// ---------------------------------------------------------------------------
+// Weeks
+// ---------------------------------------------------------------------------
+
+function compileWeeks(weeks: Week[]): Record<string, unknown>[] {
+  return weeks.map(compileWeek);
+}
+
+function compileWeek(week: Week): Record<string, unknown> {
+  const compiled: Record<string, unknown> = {
+    id: `week_${week.number}`,
+    name: week.name ?? `Week ${week.number}`,
+    order: week.number,
+  };
+
+  if (week.days && week.days.length > 0) {
+    compiled.days = compileDays(week.days);
+  }
+
+  return compiled;
+}
+
+// ---------------------------------------------------------------------------
+// Days
+// ---------------------------------------------------------------------------
+
+function compileDays(days: Day[]): Record<string, unknown>[] {
+  return days.map((day, i) => compileDay(day, i + 1));
+}
+
+function compileDay(day: Day, index: number): Record<string, unknown> {
+  const compiled: Record<string, unknown> = {
+    id: `day_${index}`,
+    day_of_week: dayNameToNumber(day.day_name),
+    type: day.day_type ?? "training",
+  };
+
+  if (day.label) {
+    compiled.name = day.label;
+  }
+  if (day.duration) {
+    const mins = durationToMinutes(day.duration);
+    if (mins !== null) {
+      compiled.estimated_duration_minutes = mins;
+    }
+  }
+  if (day.blocks && day.blocks.length > 0) {
+    compiled.blocks = compileBlocks(day.blocks);
+  }
+
+  return compiled;
+}
+
+// ---------------------------------------------------------------------------
+// Blocks
+// ---------------------------------------------------------------------------
+
+function compileBlocks(blocks: Block[]): Record<string, unknown>[] {
+  return blocks.map((block, i) => compileBlock(block, i + 1));
+}
+
+function compileBlock(block: Block, index: number): Record<string, unknown> {
+  const compiled: Record<string, unknown> = {
+    id: `${block.type}_block`,
+    type: block.type,
+    order: index,
+  };
+
+  if (block.structure) {
+    compiled.structure = block.structure;
+  }
+  if (block.rounds != null) {
+    compiled.rounds = block.rounds;
+  }
+  if (block.rest_between_rounds) {
+    compiled.rest_between_rounds = compileDuration(block.rest_between_rounds);
+  }
+  if (block.activities && block.activities.length > 0) {
+    compiled.activities = block.activities.map((act, i) => compileActivity(act, i + 1));
+  }
+
+  return compiled;
+}
+
+// ---------------------------------------------------------------------------
+// Activities (dispatch on kind)
+// ---------------------------------------------------------------------------
+
+function compileActivity(activity: Activity, index: number): Record<string, unknown> {
+  switch (activity.kind) {
+    case "exercise":
+      return compileExercise(activity, index);
+    case "cardio":
+      return compileCardio(activity, index);
+    case "nutrition":
+      return compileNutrition(activity, index);
+    case "meditation":
+      return compileMeditation(activity, index);
+    case "recovery":
+      return compileRecovery(activity, index);
+    case "habit":
+      return compileHabit(activity, index);
+    case "simple":
+      return compileSimpleActivity(activity, index);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Exercise
+// ---------------------------------------------------------------------------
+
+function compileExercise(ex: Exercise, index: number): Record<string, unknown> {
+  const compiled: Record<string, unknown> = {
+    id: `exercise_${index}`,
+    type: "exercise",
+    exercise_ref: ex.exercise_ref,
+  };
+
+  if (ex.name) {
+    compiled.name = ex.name;
+  }
+
+  // Build prescription
+  const prescription: Record<string, unknown> = {};
+
+  if (ex.sets != null) {
+    prescription.sets = ex.sets;
+  }
+
+  const reps = compileReps(ex.reps);
+  if (reps) {
+    prescription.reps = reps;
+  }
+
+  if (ex.rest) {
+    prescription.rest = compileDuration(ex.rest);
+  }
+  if (ex.tempo) {
+    prescription.tempo = ex.tempo;
+  }
+  if (ex.weight) {
+    prescription.weight = compileWeight(ex.weight);
+  }
+
+  if (Object.keys(prescription).length > 0) {
+    compiled.prescription = prescription;
+  }
+
+  // Intensity markers
+  if (ex.rpe != null) {
+    compiled.target_rpe = ex.rpe;
+  }
+  if (ex.rir != null) {
+    compiled.target_rir = ex.rir;
+  }
+
+  return compiled;
+}
+
+// ---------------------------------------------------------------------------
+// Reps compilation
+// ---------------------------------------------------------------------------
+
+function compileReps(reps: RepsSpec | null | undefined): Record<string, unknown> | null {
+  if (reps == null) return null;
+
+  if (typeof reps === "number") {
+    return { target: reps };
+  }
+
+  if (Array.isArray(reps)) {
+    if (reps.length === 3) {
+      return { min: reps[0], max: reps[1], target: reps[2] };
+    }
+    if (reps.length === 2) {
+      return { min: reps[0], max: reps[1] };
+    }
+  }
+
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Cardio
+// ---------------------------------------------------------------------------
+
+function compileCardio(cardio: Cardio, index: number): Record<string, unknown> {
+  const compiled: Record<string, unknown> = {
+    id: `cardio_${index}`,
+    type: "cardio",
+    modality: cardio.modality,
+  };
+
+  const prescription: Record<string, unknown> = {
+    type: cardio.cardio_type ?? "continuous",
+  };
+
+  if (cardio.total_duration) {
+    prescription.duration = compileDuration(cardio.total_duration);
+  }
+  if (cardio.zone != null) {
+    prescription.intensity = { type: "heart_rate_zone", zone: cardio.zone };
+  }
+  if (cardio.intervals) {
+    prescription.intervals = compileIntervals(cardio.intervals);
+  }
+
+  compiled.prescription = prescription;
+  return compiled;
+}
+
+// ---------------------------------------------------------------------------
+// Nutrition
+// ---------------------------------------------------------------------------
+
+function compileNutrition(nutrition: Nutrition, index: number): Record<string, unknown> {
+  const compiled: Record<string, unknown> = {
+    id: `nutrition_${index}`,
+    type: "nutrition",
+    category: nutrition.category,
+  };
+
+  const prescription: Record<string, unknown> = {};
+
+  if (nutrition.macros) {
+    prescription.macros = compileMacros(nutrition.macros);
+  }
+  if (nutrition.calories) {
+    prescription.calories = { min: nutrition.calories[0], max: nutrition.calories[1] };
+  }
+  if (nutrition.suggestions && nutrition.suggestions.length > 0) {
+    prescription.suggestions = nutrition.suggestions;
+  }
+
+  if (Object.keys(prescription).length > 0) {
+    compiled.prescription = prescription;
+  }
+
+  if (nutrition.timing) {
+    compiled.timing = compileTiming(nutrition.timing);
+  }
+
+  return compiled;
+}
+
+// ---------------------------------------------------------------------------
+// Meditation
+// ---------------------------------------------------------------------------
+
+function compileMeditation(meditation: Meditation, index: number): Record<string, unknown> {
+  const compiled: Record<string, unknown> = {
+    id: `meditation_${index}`,
+    type: "meditation",
+    category: meditation.category,
+  };
+
+  const prescription: Record<string, unknown> = {};
+
+  if (meditation.duration) {
+    prescription.duration = compileDuration(meditation.duration);
+  }
+  if (meditation.guided != null) {
+    prescription.guided = meditation.guided;
+  }
+
+  if (Object.keys(prescription).length > 0) {
+    compiled.prescription = prescription;
+  }
+
+  return compiled;
+}
+
+// ---------------------------------------------------------------------------
+// Recovery
+// ---------------------------------------------------------------------------
+
+function compileRecovery(recovery: Recovery, index: number): Record<string, unknown> {
+  const compiled: Record<string, unknown> = {
+    id: `recovery_${index}`,
+    type: "recovery",
+    category: recovery.category,
+  };
+
+  if (recovery.duration) {
+    compiled.duration = compileDuration(recovery.duration);
+  }
+
+  if (recovery.exercises && recovery.exercises.length > 0) {
+    compiled.exercises = recovery.exercises.map((ex, i) => compileRecoveryExercise(ex, i + 1));
+  }
+
+  return compiled;
+}
+
+function compileRecoveryExercise(
+  ex: RecoveryExercise,
+  index: number,
+): Record<string, unknown> {
+  const compiled: Record<string, unknown> = {
+    id: `recovery_exercise_${index}`,
+    type: "recovery_exercise",
+    name: ex.name,
+  };
+
+  if (ex.hold_seconds != null) {
+    compiled.hold_seconds = ex.hold_seconds;
+  }
+  if (ex.reps != null) {
+    compiled.reps = ex.reps;
+  }
+  if (ex.sides) {
+    compiled.sides = ex.sides;
+  }
+
+  return compiled;
+}
+
+// ---------------------------------------------------------------------------
+// Habit
+// ---------------------------------------------------------------------------
+
+function compileHabit(habit: Habit, index: number): Record<string, unknown> {
+  const compiled: Record<string, unknown> = {
+    id: `habit_${index}`,
+    type: "habit",
+    category: habit.category,
+  };
+
+  if (habit.target != null) {
+    compiled.target = habit.target;
+  }
+  if (habit.target_unit) {
+    compiled.target_unit = habit.target_unit;
+  }
+  if (habit.frequency) {
+    compiled.frequency = habit.frequency;
+  }
+  if (habit.reminders && habit.reminders.length > 0) {
+    compiled.reminder_times = habit.reminders;
+  }
+
+  return compiled;
+}
+
+// ---------------------------------------------------------------------------
+// Simple activity
+// ---------------------------------------------------------------------------
+
+function compileSimpleActivity(simple: SimpleActivity, index: number): Record<string, unknown> {
+  const compiled: Record<string, unknown> = {
+    id: `activity_${index}`,
+    type: "simple",
+    name: simple.name,
+  };
+
+  if (simple.duration) {
+    compiled.duration = compileDuration(simple.duration);
+  }
+
+  return compiled;
+}
+
+// ---------------------------------------------------------------------------
+// Progress
+// ---------------------------------------------------------------------------
+
+function compileProgress(progress: Progress | null): Record<string, unknown> | null {
+  if (!progress) return null;
+
+  const compiled: Record<string, unknown> = {};
+
+  if (progress.checkpoints && progress.checkpoints.length > 0) {
+    compiled.checkpoints = progress.checkpoints.map(compileCheckpoint);
+  }
+
+  if (progress.points) {
+    compiled.points = compilePointsConfig(progress.points);
+  }
+
+  return Object.keys(compiled).length === 0 ? null : compiled;
+}
+
+function compileCheckpoint(cp: Checkpoint): Record<string, unknown> {
+  const compiled: Record<string, unknown> = {
+    id: generateShortId("cp"),
+    name: cp.name,
+  };
+
+  if (cp.trigger && cp.trigger.type === "time") {
+    compiled.at = { value: cp.trigger.every, unit: String(cp.trigger.unit_count) };
+  }
+
+  if (cp.measurements && cp.measurements.length > 0) {
+    compiled.measurements = cp.measurements;
+  }
+  if (cp.questions && cp.questions.length > 0) {
+    compiled.questions = cp.questions;
+  }
+
+  return compiled;
+}
+
+function compilePointsConfig(pc: PointsConfig): Record<string, unknown> {
+  const compiled: Record<string, unknown> = {
+    enabled: pc.enabled ?? false,
+  };
+
+  if (pc.rules && pc.rules.length > 0) {
+    compiled.rules = pc.rules.map((rule: PointsRule) => ({
+      event: rule.activity,
+      points: rule.points,
+    }));
+  }
+
+  return compiled;
+}
+
+// ---------------------------------------------------------------------------
+// Notifications
+// ---------------------------------------------------------------------------
+
+function compileNotifications(
+  notifications: Notification[] | null | undefined,
+): Record<string, unknown>[] | null {
+  if (!notifications || notifications.length === 0) return null;
+  return notifications.map(compileNotification);
+}
+
+function compileNotification(notif: Notification): Record<string, unknown> {
+  const compiled: Record<string, unknown> = {
+    id: notif.id || generateShortId("notif"),
+    enabled: notif.enabled ?? false,
+    message: notif.message,
+  };
+
+  if (notif.timing) {
+    compiled.timing_offset = compileDuration(notif.timing.duration);
+    compiled.timing_reference = notif.timing.relative_to;
+  }
+
+  return compiled;
+}
+
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
+
+function compileDuration(dur: Duration): Record<string, unknown> {
+  return { value: dur.value, unit: dur.unit };
+}
+
+function compileWeight(weight: Weight): Record<string, unknown> {
+  if (weight.type === "bodyweight") {
+    return { type: "bodyweight" };
+  }
+  return compact({
+    type: weight.type ?? "absolute",
+    value: weight.value,
+    unit: weight.unit,
+  });
+}
+
+function compileIntervals(pattern: IntervalPattern): Record<string, unknown> {
+  return {
+    work: { duration: pattern.work_seconds },
+    rest: { duration: pattern.rest_seconds },
+    repeat: pattern.repeats,
+  };
+}
+
+function compileMacros(macros: Macros): Record<string, unknown> {
+  const compiled: Record<string, unknown> = {};
+
+  if (macros.protein) {
+    compiled.protein = { min: macros.protein[0], max: macros.protein[1], unit: "g" };
+  }
+  if (macros.carbs) {
+    compiled.carbs = { min: macros.carbs[0], max: macros.carbs[1], unit: "g" };
+  }
+  if (macros.fat) {
+    compiled.fat = { min: macros.fat[0], max: macros.fat[1], unit: "g" };
+  }
+
+  return compiled;
+}
+
+function compileTiming(timing: NutritionTiming): Record<string, unknown> {
+  const compiled: Record<string, unknown> = {
+    type: timing.type ?? "after_workout",
+  };
+
+  if (timing.duration) {
+    compiled.offset = compileDuration(timing.duration);
+  }
+  if (timing.time) {
+    compiled.time = timing.time;
+  }
+
+  return compiled;
+}
+
+// ---------------------------------------------------------------------------
+// Unit conversions
+// ---------------------------------------------------------------------------
+
+function durationToDays(dur: Duration): number | null {
+  switch (dur.unit) {
+    case "weeks":
+      return Math.trunc(dur.value * 7);
+    case "days":
+      return Math.trunc(dur.value);
+    default:
+      return null;
+  }
+}
+
+function durationToMinutes(dur: Duration): number | null {
+  switch (dur.unit) {
+    case "minutes":
+      return Math.trunc(dur.value);
+    case "hours":
+      return Math.trunc(dur.value * 60);
+    case "seconds":
+      return Math.trunc(dur.value / 60);
+    default:
+      return null;
+  }
+}
+
+function dayNameToNumber(name: string | number): number {
+  if (typeof name === "number") return name;
+
+  switch (name.toLowerCase()) {
+    case "monday":
+      return 1;
+    case "tuesday":
+      return 2;
+    case "wednesday":
+      return 3;
+    case "thursday":
+      return 4;
+    case "friday":
+      return 5;
+    case "saturday":
+      return 6;
+    case "sunday":
+      return 7;
+    default:
+      return 1;
+  }
+}

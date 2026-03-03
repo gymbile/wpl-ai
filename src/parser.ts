@@ -1,0 +1,3451 @@
+// ---------------------------------------------------------------------------
+// WPL-AI Recursive Descent Parser (ported from Elixir parser.ex)
+// ---------------------------------------------------------------------------
+// Builds an AST from tokens produced by the Lexer.
+// Uses mutable ParseState for efficiency.
+// ---------------------------------------------------------------------------
+
+import type {
+  Document,
+  Header,
+  PlanType,
+  Visibility,
+  Difficulty,
+  Duration,
+  TimeUnit,
+  Goal,
+  GoalPriority,
+  MeasurementType,
+  Target,
+  Milestone,
+  Requirements,
+  Equipment,
+  Contraindication,
+  ContraindicationAction,
+  TimeCommitment,
+  Personalization,
+  Input,
+  InputType,
+  Condition,
+  ComparisonOp,
+  Action,
+  ActionScope,
+  Rule,
+  Phase,
+  Week,
+  Day,
+  DayType,
+  SchedulePref,
+  ScheduleFlex,
+  Block,
+  BlockType,
+  BlockStructure,
+  Activity,
+  RepsSpec,
+  Weight,
+  WeightType,
+  Cardio,
+  CardioType,
+  Intensity,
+  IntervalPattern,
+  Nutrition,
+  NutritionTiming,
+  MacroRange,
+  Macros,
+  Meditation,
+  Recovery,
+  RecoveryExercise,
+  RecoverySides,
+  Habit,
+  Progress,
+  Checkpoint,
+  CheckpointTrigger,
+  PointsConfig,
+  PointsRule,
+  Achievement,
+  StreaksConfig,
+  Notification,
+  Rendering,
+} from "./types.js";
+
+import type { Location, WplError, ParseError } from "./errors.js";
+import {
+  unexpectedToken,
+  missingRequired,
+  invalidValue,
+  unknownExerciseRef,
+} from "./errors.js";
+
+import { validate } from "./exercise-matcher.js";
+import type { Token, TokenType } from "./lexer.js";
+import {
+  GRAMMAR,
+  PLAN_TYPE_SET,
+  VISIBILITY_SET,
+  DIFFICULTY_SET,
+  GOAL_PRIORITY_SET,
+  MEASUREMENT_TYPE_SET,
+  CONTRAINDICATION_ACTION_SET,
+  INPUT_TYPE_SET,
+  ACTION_SCOPE_SET,
+  DAY_NAME_SET,
+  DAY_TYPE_SET,
+  BLOCK_TYPE_SET,
+  BLOCK_STRUCTURE_SET,
+  CARDIO_TYPE_SET,
+  RECOVERY_SIDES_SET,
+  TIME_UNIT_SHORT_SET,
+  SCHEDULE_PREF_SET,
+  SCHEDULE_FLEX_SET,
+} from "./grammar.js";
+
+// ---------------------------------------------------------------------------
+// Parse State (mutable)
+// ---------------------------------------------------------------------------
+
+interface ParseState {
+  tokens: Token[];
+  pos: number;
+  errors: ParseError[];
+}
+
+// ---------------------------------------------------------------------------
+// Token access helpers
+// ---------------------------------------------------------------------------
+
+const EOF_TOKEN: Token = {
+  type: "eof",
+  value: null,
+  location: { line: 0, column: 0 },
+};
+
+function currentToken(state: ParseState): Token {
+  if (state.pos < state.tokens.length) {
+    return state.tokens[state.pos];
+  }
+  return EOF_TOKEN;
+}
+
+function currentLocation(state: ParseState): Location {
+  return currentToken(state).location;
+}
+
+function advance(state: ParseState): void {
+  state.pos++;
+}
+
+function skipNewlines(state: ParseState): void {
+  while (currentToken(state).type === "newline") {
+    advance(state);
+  }
+}
+
+function skipDedents(state: ParseState): void {
+  while (currentToken(state).type === "dedent") {
+    advance(state);
+  }
+}
+
+function addError(state: ParseState, error: ParseError): void {
+  state.errors.push(error);
+}
+
+// ---------------------------------------------------------------------------
+// Main API
+// ---------------------------------------------------------------------------
+
+export function parse(
+  tokens: Token[],
+): { ok: true; document: Document } | { ok: false; errors: WplError[] } {
+  const state: ParseState = {
+    tokens,
+    pos: 0,
+    errors: [],
+  };
+
+  const document = parseDocument(state);
+
+  if (document === null) {
+    return { ok: false, errors: state.errors };
+  }
+
+  if (state.errors.length > 0) {
+    return { ok: false, errors: state.errors };
+  }
+
+  return { ok: true, document };
+}
+
+// ---------------------------------------------------------------------------
+// Document Parsing
+// ---------------------------------------------------------------------------
+
+function parseDocument(state: ParseState): Document | null {
+  skipNewlines(state);
+
+  const header = parseHeader(state);
+  if (header === null) return null;
+
+  skipNewlines(state);
+
+  const sections = parseSections(state);
+
+  return {
+    header,
+    goals: sections.goals ?? null,
+    requirements: sections.requirements ?? null,
+    personalization: sections.personalization ?? null,
+    phases: sections.phases ?? [],
+    progress: sections.progress ?? null,
+    notifications: sections.notifications ?? null,
+    rendering: sections.rendering ?? null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Header Parsing
+// ---------------------------------------------------------------------------
+
+function parseHeader(state: ParseState): Header | null {
+  const name = expectPlanName(state);
+  if (name === null) return null;
+
+  skipNewlines(state);
+
+  const attrs = parseHeaderAttributes(state);
+
+  const header: Header = {
+    name,
+    type: (attrs.type as PlanType) ?? null!,
+    visibility: (attrs.visibility as Visibility) ?? null,
+    difficulty: (attrs.difficulty as Difficulty) ?? null,
+    duration: (attrs.duration as Duration) ?? null,
+    tags: (attrs.tags as string[]) ?? null,
+    language: "en", // WPL-AI is always English
+    min_app_version: (attrs.min_app_version as string) ?? null,
+    schema: (attrs.schema as string) ?? null,
+  };
+
+  if (!header.type) {
+    addError(
+      state,
+      missingRequired("TYPE", "header", currentLocation(state)),
+    );
+    return null;
+  }
+
+  return header;
+}
+
+function expectPlanName(state: ParseState): string | null {
+  const tok = currentToken(state);
+  if (tok.type === "keyword" && tok.value === "PLAN") {
+    advance(state);
+    const nameTok = currentToken(state);
+    if (nameTok.type === "string") {
+      advance(state);
+      return nameTok.value as string;
+    }
+    addError(
+      state,
+      unexpectedToken(
+        ["string"],
+        `${nameTok.type}:${nameTok.value}`,
+        nameTok.location,
+      ),
+    );
+    return null;
+  }
+
+  addError(
+    state,
+    unexpectedToken(
+      ["PLAN"],
+      `${tok.type}:${tok.value}`,
+      tok.location,
+    ),
+  );
+  return null;
+}
+
+function parseHeaderAttributes(
+  state: ParseState,
+): Record<string, unknown> {
+  const attrs: Record<string, unknown> = {};
+
+  for (;;) {
+    skipNewlines(state);
+    const tok = currentToken(state);
+
+    if (tok.type !== "keyword") break;
+
+    switch (tok.value) {
+      case "TYPE": {
+        advance(state);
+        const loc = currentLocation(state);
+        const val = expectBareWord(state);
+        attrs.type = parsePlanType(state, val, loc);
+        break;
+      }
+      case "VISIBILITY": {
+        advance(state);
+        const loc = currentLocation(state);
+        const val = expectBareWord(state);
+        attrs.visibility = parseVisibility(state, val, loc);
+        break;
+      }
+      case "DIFFICULTY": {
+        advance(state);
+        const loc = currentLocation(state);
+        const val = expectBareWord(state);
+        attrs.difficulty = parseDifficulty(state, val, loc);
+        break;
+      }
+      case "DURATION":
+        advance(state);
+        attrs.duration = parseDuration(state);
+        break;
+      case "TAGS":
+        advance(state);
+        attrs.tags = parseTagList(state);
+        break;
+      case "LANGUAGE":
+        advance(state);
+        attrs.language = expectBareWord(state);
+        break;
+      case "MIN_APP_VERSION":
+        advance(state);
+        attrs.min_app_version = expectString(state);
+        break;
+      case "SCHEMA":
+        advance(state);
+        attrs.schema = expectString(state);
+        break;
+      default:
+        // Not a header attribute; stop
+        return attrs;
+    }
+  }
+
+  return attrs;
+}
+
+function parsePlanType(state: ParseState, value: string, loc: Location): PlanType {
+  if (PLAN_TYPE_SET.has(value)) return value as PlanType;
+  addError(state, invalidValue("TYPE", value, [...GRAMMAR.plan_type], loc));
+  return GRAMMAR.plan_type[0] as PlanType;
+}
+
+function parseVisibility(state: ParseState, value: string, loc: Location): Visibility {
+  if (VISIBILITY_SET.has(value)) return value as Visibility;
+  addError(state, invalidValue("VISIBILITY", value, [...GRAMMAR.visibility], loc));
+  return GRAMMAR.visibility[0] as Visibility;
+}
+
+function parseDifficulty(state: ParseState, value: string, loc: Location): Difficulty {
+  if (DIFFICULTY_SET.has(value)) return value as Difficulty;
+  addError(state, invalidValue("DIFFICULTY", value, [...GRAMMAR.difficulty], loc));
+  return GRAMMAR.difficulty[0] as Difficulty;
+}
+
+// ---------------------------------------------------------------------------
+// Sections Parsing
+// ---------------------------------------------------------------------------
+
+interface Sections {
+  goals?: Goal[];
+  requirements?: Requirements;
+  personalization?: Personalization;
+  phases?: Phase[];
+  progress?: Progress;
+  notifications?: Notification[];
+  rendering?: Rendering;
+}
+
+function parseSections(state: ParseState): Sections {
+  const sections: Sections = {};
+
+  for (;;) {
+    skipNewlines(state);
+    skipDedents(state);
+
+    const tok = currentToken(state);
+    if (tok.type === "eof") break;
+    if (tok.type !== "keyword") break;
+
+    switch (tok.value) {
+      case "GOALS":
+        sections.goals = parseGoalsSection(state);
+        break;
+      case "REQUIRES":
+        sections.requirements = parseRequiresSection(state);
+        break;
+      case "PERSONALIZATION":
+        sections.personalization = parsePersonalizationSection(state);
+        break;
+      case "PHASES":
+        sections.phases = parsePhasesSection(state);
+        break;
+      case "PROGRESS":
+        sections.progress = parseProgressSection(state);
+        break;
+      case "NOTIFICATIONS":
+        sections.notifications = parseNotificationsSection(state);
+        break;
+      case "RENDERING":
+        sections.rendering = parseRenderingSection(state);
+        break;
+      default: {
+        // All-caps words look like misspelled section keywords — flag them.
+        // Lowercase/mixed-case keywords (e.g. "minutes") are leftover nested
+        // tokens that the section parser didn't consume — exit silently.
+        const val = String(tok.value);
+        if (/^[A-Z_]+$/.test(val)) {
+          addError(
+            state,
+            unexpectedToken(
+              [...GRAMMAR.sections.required, ...GRAMMAR.sections.optional],
+              val,
+              tok.location,
+            ),
+          );
+        }
+        return sections;
+      }
+    }
+  }
+
+  return sections;
+}
+
+// ---------------------------------------------------------------------------
+// Goals Section
+// ---------------------------------------------------------------------------
+
+function parseGoalsSection(state: ParseState): Goal[] {
+  advance(state); // skip GOALS
+  skipNewlines(state);
+
+  const tok = currentToken(state);
+  if (tok.type === "indent") {
+    advance(state);
+    return parseGoals(state);
+  }
+  return [];
+}
+
+function parseGoals(state: ParseState): Goal[] {
+  const goals: Goal[] = [];
+
+  for (;;) {
+    skipNewlines(state);
+    const tok = currentToken(state);
+
+    if (tok.type === "keyword" && tok.value === "GOAL") {
+      goals.push(parseGoal(state));
+    } else if (tok.type === "dedent") {
+      advance(state);
+      break;
+    } else {
+      break;
+    }
+  }
+
+  return goals;
+}
+
+function parseGoal(state: ParseState): Goal {
+  advance(state); // skip GOAL
+
+  const priority = expectBareWord(state);
+  const category = expectBareWord(state);
+  expectColon(state);
+  skipNewlines(state);
+
+  let goalAttrs: Record<string, unknown> = {};
+
+  if (currentToken(state).type === "indent") {
+    advance(state);
+    goalAttrs = parseGoalBody(state);
+  }
+
+  return {
+    priority: parsePriority(priority),
+    category,
+    name: (goalAttrs.name as string) ?? null,
+    description: (goalAttrs.description as string) ?? null,
+    target: (goalAttrs.target as Target) ?? null,
+    deadline: (goalAttrs.deadline as string) ?? null,
+    milestones: (goalAttrs.milestones as Milestone[]) ?? null,
+  };
+}
+
+function parseGoalBody(state: ParseState): Record<string, unknown> {
+  const attrs: Record<string, unknown> = {};
+
+  for (;;) {
+    skipNewlines(state);
+    const tok = currentToken(state);
+
+    if (tok.type === "keyword") {
+      switch (tok.value) {
+        case "name":
+          advance(state);
+          attrs.name = expectString(state);
+          continue;
+        case "description":
+          advance(state);
+          attrs.description = expectString(state);
+          continue;
+        case "target":
+          advance(state);
+          attrs.target = parseTarget(state);
+          continue;
+        case "deadline":
+          advance(state);
+          attrs.deadline = expectDate(state);
+          continue;
+        case "milestone": {
+          const milestone = parseMilestone(state);
+          const milestones = (attrs.milestones as Milestone[]) ?? [];
+          milestones.push(milestone);
+          attrs.milestones = milestones;
+          continue;
+        }
+        default:
+          break;
+      }
+    }
+
+    if (tok.type === "dedent") {
+      advance(state);
+      break;
+    }
+
+    break;
+  }
+
+  return attrs;
+}
+
+function parseTarget(state: ParseState): Target {
+  const metric = expectBareWord(state);
+  const value = expectNumber(state);
+  const unit = expectBareWord(state);
+
+  let measurementType: MeasurementType = GRAMMAR.measurement_type[0] as MeasurementType;
+  const tok = currentToken(state);
+  if (tok.type === "keyword" && MEASUREMENT_TYPE_SET.has(tok.value as string)) {
+    measurementType = tok.value as MeasurementType;
+    advance(state);
+  }
+
+  return { metric, value, unit, measurement_type: measurementType };
+}
+
+function parseMilestone(state: ParseState): Milestone {
+  advance(state); // skip "milestone"
+  const name = expectString(state);
+  expectColon(state);
+  skipNewlines(state);
+
+  if (currentToken(state).type === "indent") {
+    advance(state);
+  }
+
+  const attrs = parseMilestoneBody(state);
+
+  return {
+    name,
+    at_value: (attrs.at_value as number) ?? 0,
+    at_unit: (attrs.at_unit as string) ?? "",
+    reward_points: (attrs.reward_points as number) ?? null,
+    badge: (attrs.badge as string) ?? null,
+  };
+}
+
+function parseMilestoneBody(
+  state: ParseState,
+): Record<string, unknown> {
+  const attrs: Record<string, unknown> = {};
+
+  for (;;) {
+    skipNewlines(state);
+    const tok = currentToken(state);
+
+    if (tok.type === "keyword") {
+      switch (tok.value) {
+        case "at": {
+          advance(state);
+          const value = expectNumber(state);
+          const unit = expectBareWord(state);
+          attrs.at_value = value;
+          attrs.at_unit = unit;
+          continue;
+        }
+        case "reward": {
+          advance(state);
+          const points = expectNumber(state);
+          expectKeyword(state, "points");
+          attrs.reward_points = Math.trunc(points);
+          continue;
+        }
+        case "badge":
+          advance(state);
+          attrs.badge = expectBareWord(state);
+          continue;
+        default:
+          break;
+      }
+    }
+
+    if (tok.type === "dedent") {
+      advance(state);
+      break;
+    }
+
+    break;
+  }
+
+  return attrs;
+}
+
+function parsePriority(value: string): GoalPriority {
+  if (GOAL_PRIORITY_SET.has(value)) return value as GoalPriority;
+  return GRAMMAR.goal_priority[0] as GoalPriority;
+}
+
+// ---------------------------------------------------------------------------
+// Requirements Section
+// ---------------------------------------------------------------------------
+
+function parseRequiresSection(state: ParseState): Requirements {
+  advance(state); // skip REQUIRES
+  skipNewlines(state);
+
+  if (currentToken(state).type === "indent") {
+    advance(state);
+    const attrs = parseRequiresBody(state);
+
+    return {
+      age_range: (attrs.age_range as [number, number]) ?? null,
+      fitness_levels: (attrs.fitness_levels as string[]) ?? null,
+      equipment: (attrs.equipment as Equipment[]) ?? null,
+      contraindications:
+        (attrs.contraindications as Contraindication[]) ?? null,
+      time_commitment: (attrs.time_commitment as TimeCommitment) ?? null,
+    };
+  }
+
+  return {
+    age_range: null,
+    fitness_levels: null,
+    equipment: null,
+    contraindications: null,
+    time_commitment: null,
+  };
+}
+
+function parseRequiresBody(
+  state: ParseState,
+): Record<string, unknown> {
+  const attrs: Record<string, unknown> = {};
+
+  for (;;) {
+    skipNewlines(state);
+    const tok = currentToken(state);
+
+    if (tok.type === "keyword") {
+      switch (tok.value) {
+        case "age": {
+          advance(state);
+          const min = expectNumber(state);
+          expectRange(state);
+          const max = expectNumber(state);
+          attrs.age_range = [Math.trunc(min), Math.trunc(max)] as [
+            number,
+            number,
+          ];
+          continue;
+        }
+        case "fitness":
+          advance(state);
+          attrs.fitness_levels = parseEnumList(state);
+          continue;
+        case "equipment":
+          advance(state);
+          expectColon(state);
+          skipNewlines(state);
+          expectIndent(state);
+          attrs.equipment = parseEquipmentList(state);
+          continue;
+        case "contraindication": {
+          const contra = parseContraindication(state);
+          const contras =
+            (attrs.contraindications as Contraindication[]) ?? [];
+          contras.push(contra);
+          attrs.contraindications = contras;
+          continue;
+        }
+        case "time":
+          advance(state);
+          expectColon(state);
+          skipNewlines(state);
+          expectIndent(state);
+          attrs.time_commitment = parseTimeCommitment(state);
+          continue;
+        default:
+          break;
+      }
+    }
+
+    if (tok.type === "dedent") {
+      advance(state);
+      break;
+    }
+
+    break;
+  }
+
+  return attrs;
+}
+
+function parseEquipmentList(state: ParseState): Equipment[] {
+  const equipment: Equipment[] = [];
+
+  for (;;) {
+    skipNewlines(state);
+    const tok = currentToken(state);
+
+    if (tok.type === "bare_word") {
+      const name = tok.value as string;
+      advance(state);
+      const flags = parseEquipmentFlags(state);
+
+      equipment.push({
+        name,
+        required: (flags.required as boolean) ?? false,
+        alternatives: (flags.alternatives as string[]) ?? null,
+      });
+    } else if (tok.type === "dedent") {
+      advance(state);
+      break;
+    } else {
+      break;
+    }
+  }
+
+  return equipment;
+}
+
+function parseEquipmentFlags(
+  state: ParseState,
+): Record<string, unknown> {
+  if (currentToken(state).type === "lparen") {
+    advance(state);
+    const flags = parseEquipmentFlagsContent(state);
+    expectRparen(state);
+    return flags;
+  }
+  return {};
+}
+
+function parseEquipmentFlagsContent(
+  state: ParseState,
+): Record<string, unknown> {
+  const flags: Record<string, unknown> = {};
+
+  for (;;) {
+    const tok = currentToken(state);
+    if (tok.type === "rparen") break;
+
+    if (tok.type === "keyword") {
+      switch (tok.value) {
+        case "required":
+          advance(state);
+          flags.required = true;
+          maybeSkipComma(state);
+          continue;
+        case "optional":
+          advance(state);
+          flags.required = false;
+          maybeSkipComma(state);
+          continue;
+        case "alternatives":
+          advance(state);
+          expectColon(state);
+          flags.alternatives = parseEnumList(state);
+          maybeSkipComma(state);
+          continue;
+        default:
+          break;
+      }
+    }
+
+    break;
+  }
+
+  return flags;
+}
+
+function parseContraindication(state: ParseState): Contraindication {
+  advance(state); // skip "contraindication"
+  const condition = expectBareWord(state);
+  expectArrow(state);
+  const actionStr = expectBareWord(state);
+
+  const action: ContraindicationAction = CONTRAINDICATION_ACTION_SET.has(actionStr)
+    ? (actionStr as ContraindicationAction)
+    : (GRAMMAR.contraindication_action[0] as ContraindicationAction);
+
+  let affectsList: string[] | null = null;
+
+  if (currentToken(state).type === "indent") {
+    advance(state);
+    skipNewlines(state);
+
+    if (
+      currentToken(state).type === "keyword" &&
+      currentToken(state).value === "affects"
+    ) {
+      advance(state);
+      affectsList = parseEnumList(state);
+
+      if (currentToken(state).type === "dedent") {
+        advance(state);
+      }
+    } else if (currentToken(state).type === "dedent") {
+      advance(state);
+    }
+  }
+
+  return {
+    condition,
+    action,
+    affects: affectsList,
+  };
+}
+
+function parseTimeCommitment(state: ParseState): TimeCommitment {
+  skipNewlines(state);
+  const attrs: Record<string, unknown> = {};
+
+  for (;;) {
+    skipNewlines(state);
+    const tok = currentToken(state);
+
+    if (tok.type === "keyword") {
+      switch (tok.value) {
+        case "days_per_week": {
+          advance(state);
+          const min = expectNumber(state);
+          expectRange(state);
+          const max = expectNumber(state);
+          attrs.days_per_week = [Math.trunc(min), Math.trunc(max)];
+          continue;
+        }
+        case "minutes_per_day": {
+          advance(state);
+          const min = expectNumber(state);
+          expectRange(state);
+          const max = expectNumber(state);
+          attrs.minutes_per_day = [Math.trunc(min), Math.trunc(max)];
+          continue;
+        }
+        default:
+          break;
+      }
+    }
+
+    if (tok.type === "dedent") {
+      advance(state);
+      break;
+    }
+
+    break;
+  }
+
+  return {
+    days_per_week: (attrs.days_per_week as [number, number]) ?? [0, 0],
+    minutes_per_day: (attrs.minutes_per_day as [number, number]) ?? [
+      0, 0,
+    ],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Personalization Section
+// ---------------------------------------------------------------------------
+
+function parsePersonalizationSection(state: ParseState): Personalization {
+  advance(state); // skip PERSONALIZATION
+  skipNewlines(state);
+
+  if (currentToken(state).type === "indent") {
+    advance(state);
+    const { inputs, rules } = parsePersonalizationBody(state);
+    return {
+      inputs: inputs.length === 0 ? null : inputs,
+      rules,
+    };
+  }
+
+  return { inputs: null, rules: [] };
+}
+
+function parsePersonalizationBody(state: ParseState): {
+  inputs: Input[];
+  rules: Rule[];
+} {
+  let inputs: Input[] = [];
+  let rules: Rule[] = [];
+
+  for (;;) {
+    skipNewlines(state);
+    const tok = currentToken(state);
+
+    if (tok.type === "keyword") {
+      switch (tok.value) {
+        case "INPUTS":
+          advance(state);
+          skipNewlines(state);
+          expectIndent(state);
+          inputs = inputs.concat(parseInputs(state));
+          continue;
+        case "RULES":
+          advance(state);
+          skipNewlines(state);
+          expectIndent(state);
+          rules = rules.concat(parseRules(state));
+          continue;
+        default:
+          break;
+      }
+    }
+
+    if (tok.type === "dedent") {
+      advance(state);
+      break;
+    }
+
+    break;
+  }
+
+  return { inputs, rules };
+}
+
+function parseInputs(state: ParseState): Input[] {
+  const inputs: Input[] = [];
+
+  for (;;) {
+    skipNewlines(state);
+    const tok = currentToken(state);
+
+    if (tok.type === "bare_word") {
+      const name = tok.value as string;
+      advance(state);
+      expectEq(state);
+      const source = parseInputSource(state);
+      expectKeyword(state, "as");
+      const typeStr = expectBareWord(state);
+
+      const inputType: InputType = INPUT_TYPE_SET.has(typeStr)
+        ? (typeStr as InputType)
+        : ("string" as InputType);
+
+      const { options, label } = parseInputOptionsAndLabel(state);
+
+      inputs.push({
+        name,
+        source,
+        type: inputType,
+        options: options ?? null,
+        label: label ?? null,
+      });
+    } else if (tok.type === "dedent") {
+      advance(state);
+      break;
+    } else {
+      break;
+    }
+  }
+
+  return inputs;
+}
+
+function parseInputSource(state: ParseState): string {
+  const tok = currentToken(state);
+  if (tok.type === "bare_word" || tok.type === "keyword") {
+    advance(state);
+    return tok.value as string;
+  }
+  return "";
+}
+
+function parseInputOptionsAndLabel(state: ParseState): {
+  options: string[] | null;
+  label: string | null;
+} {
+  let options: string[] | null = null;
+  let label: string | null = null;
+
+  for (;;) {
+    const tok = currentToken(state);
+    if (tok.type === "keyword") {
+      if (tok.value === "options") {
+        advance(state);
+        expectLparen(state);
+        options = parseEnumList(state);
+        expectRparen(state);
+        continue;
+      }
+      if (tok.value === "label") {
+        advance(state);
+        label = expectString(state);
+        continue;
+      }
+    }
+    break;
+  }
+
+  return { options, label };
+}
+
+function parseRules(state: ParseState): Rule[] {
+  const rules: Rule[] = [];
+
+  for (;;) {
+    skipNewlines(state);
+    const tok = currentToken(state);
+
+    if (tok.type === "keyword" && tok.value === "WHEN") {
+      rules.push(parseRule(state));
+    } else if (tok.type === "dedent") {
+      advance(state);
+      break;
+    } else {
+      break;
+    }
+  }
+
+  return rules;
+}
+
+function parseRule(state: ParseState): Rule {
+  advance(state); // skip WHEN
+  const condition = parseCondition(state);
+  expectColon(state);
+  skipNewlines(state);
+  expectIndent(state);
+  const actions = parseActions(state);
+
+  return { condition, actions };
+}
+
+// ---------------------------------------------------------------------------
+// Condition Parsing (OR / AND / predicate precedence)
+// ---------------------------------------------------------------------------
+
+function parseCondition(state: ParseState): Condition {
+  return parseOrExpr(state);
+}
+
+function parseOrExpr(state: ParseState): Condition {
+  let left = parseAndExpr(state);
+
+  while (
+    currentToken(state).type === "keyword" &&
+    currentToken(state).value === "OR"
+  ) {
+    advance(state);
+    const right = parseAndExpr(state);
+    left = {
+      type: "compound",
+      operator: "or",
+      field: null,
+      op: null,
+      value: null,
+      conditions: [left, right],
+    };
+  }
+
+  return left;
+}
+
+function parseAndExpr(state: ParseState): Condition {
+  let left = parsePredicate(state);
+
+  while (
+    currentToken(state).type === "keyword" &&
+    currentToken(state).value === "AND"
+  ) {
+    advance(state);
+    const right = parsePredicate(state);
+    left = {
+      type: "compound",
+      operator: "and",
+      field: null,
+      op: null,
+      value: null,
+      conditions: [left, right],
+    };
+  }
+
+  return left;
+}
+
+function parsePredicate(state: ParseState): Condition {
+  const tok = currentToken(state);
+
+  if (tok.type === "lparen") {
+    advance(state);
+    const condition = parseCondition(state);
+    expectRparen(state);
+    return condition;
+  }
+
+  if (tok.type === "bare_word" || tok.type === "keyword") {
+    return parseSimplePredicate(state);
+  }
+
+  // Dummy condition on error
+  return {
+    type: "simple",
+    operator: null,
+    field: "unknown",
+    op: "eq",
+    value: null,
+    conditions: null,
+  };
+}
+
+function parseSimplePredicate(state: ParseState): Condition {
+  const field = expectBareWordOrKeyword(state);
+  const op = parseComparisonOp(state);
+  const value = parseValue(state);
+
+  return {
+    type: "simple",
+    operator: null,
+    field,
+    op,
+    value,
+    conditions: null,
+  };
+}
+
+function parseComparisonOp(state: ParseState): ComparisonOp {
+  const tok = currentToken(state);
+
+  switch (tok.type) {
+    case "eq":
+      advance(state);
+      return "eq";
+    case "neq":
+      advance(state);
+      return "neq";
+    case "gte":
+      advance(state);
+      return "gte";
+    case "lte":
+      advance(state);
+      return "lte";
+    case "gt":
+      advance(state);
+      return "gt";
+    case "lt":
+      advance(state);
+      return "lt";
+    case "keyword":
+      if (tok.value === "contains") {
+        advance(state);
+        return "contains";
+      }
+      if (tok.value === "not_contains") {
+        advance(state);
+        return "not_contains";
+      }
+      return "eq";
+    default:
+      return "eq";
+  }
+}
+
+function parseValue(state: ParseState): unknown {
+  const tok = currentToken(state);
+
+  switch (tok.type) {
+    case "number":
+      advance(state);
+      return tok.value;
+    case "string":
+      advance(state);
+      return tok.value;
+    case "bare_word":
+      advance(state);
+      return tok.value;
+    case "keyword":
+      advance(state);
+      return tok.value;
+    default:
+      return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Actions Parsing
+// ---------------------------------------------------------------------------
+
+const ACTION_KEYWORDS = new Set([
+  "reduce",
+  "modify",
+  "add",
+  "replace",
+  "exclude",
+  "remove",
+  "increase",
+]);
+
+function parseActions(state: ParseState): Action[] {
+  const actions: Action[] = [];
+
+  for (;;) {
+    skipNewlines(state);
+    const tok = currentToken(state);
+
+    if (
+      tok.type === "keyword" &&
+      ACTION_KEYWORDS.has(tok.value as string)
+    ) {
+      actions.push(parseAction(state));
+    } else if (tok.type === "dedent") {
+      advance(state);
+      break;
+    } else {
+      break;
+    }
+  }
+
+  return actions;
+}
+
+function parseAction(state: ParseState): Action {
+  const tok = currentToken(state);
+  const actionWord = tok.value as string;
+
+  switch (actionWord) {
+    case "reduce":
+      advance(state);
+      return parseReduceAction(state);
+    case "modify":
+      advance(state);
+      return parseModifyAction(state);
+    case "add":
+      advance(state);
+      return parseAddAction(state);
+    case "replace":
+      advance(state);
+      return parseReplaceAction(state);
+    case "exclude":
+    case "remove":
+      advance(state);
+      return parseExcludeAction(state);
+    case "increase":
+      advance(state);
+      return parseIncreaseAction(state);
+    default:
+      return {
+        type: "modify_intensity",
+        params: {},
+        scope: "plan",
+      };
+  }
+}
+
+function parseReduceAction(state: ParseState): Action {
+  const tok = currentToken(state);
+  const word = tok.value as string;
+
+  if (
+    (tok.type === "keyword" || tok.type === "bare_word") &&
+    word === "intensity"
+  ) {
+    advance(state);
+    expectKeyword(state, "by");
+    const value = expectNumber(state);
+    expectPercent(state);
+    const scope = parseOptionalScope(state);
+
+    return {
+      type: "modify_intensity",
+      params: { factor: 1 - value / 100 },
+      scope,
+    };
+  }
+
+  if (
+    (tok.type === "keyword" || tok.type === "bare_word") &&
+    word === "sets"
+  ) {
+    advance(state);
+    expectKeyword(state, "by");
+    const value = expectNumber(state);
+    const scope = parseOptionalScope(state);
+
+    return {
+      type: "reduce_sets",
+      params: { amount: Math.trunc(value) },
+      scope,
+    };
+  }
+
+  if (
+    (tok.type === "keyword" || tok.type === "bare_word") &&
+    word === "reps"
+  ) {
+    advance(state);
+    expectKeyword(state, "by");
+    const value = expectNumber(state);
+    const scope = parseOptionalScope(state);
+
+    return {
+      type: "reduce_reps",
+      params: { amount: Math.trunc(value) },
+      scope,
+    };
+  }
+
+  return { type: "modify_intensity", params: {}, scope: "plan" };
+}
+
+function parseModifyAction(state: ParseState): Action {
+  expectKeyword(state, "intensity");
+  expectKeyword(state, "factor");
+  const factor = expectNumber(state);
+  const scope = parseOptionalScope(state);
+
+  return {
+    type: "modify_intensity",
+    params: { factor },
+    scope,
+  };
+}
+
+function parseAddAction(state: ParseState): Action {
+  const tok = currentToken(state);
+
+  if (tok.type === "keyword" && tok.value === "warmup") {
+    advance(state);
+    const minutes = expectNumber(state);
+    expectKeyword(state, "minutes");
+    const scope = parseOptionalScope(state);
+
+    return {
+      type: "add_warmup_time",
+      params: { minutes: Math.trunc(minutes) },
+      scope,
+    };
+  }
+
+  if (tok.type === "keyword" && tok.value === "activity") {
+    advance(state);
+    const activityName = expectBareWord(state);
+    const placement = parseOptionalPlacement(state);
+    const scope = parseOptionalScope(state);
+
+    return {
+      type: "add_activity",
+      params: { activity: activityName, placement },
+      scope,
+    };
+  }
+
+  return { type: "add_activity", params: {}, scope: "plan" };
+}
+
+function parseReplaceAction(state: ParseState): Action {
+  const from = expectBareWord(state);
+  expectArrow(state);
+  const to = expectBareWord(state);
+  const scope = parseOptionalScope(state);
+
+  return {
+    type: "replace_exercise",
+    params: { from, to },
+    scope,
+  };
+}
+
+function parseExcludeAction(state: ParseState): Action {
+  const exercise = expectBareWord(state);
+  const scope = parseOptionalScope(state);
+
+  return {
+    type: "exclude_exercise",
+    params: { exercise },
+    scope,
+  };
+}
+
+function parseIncreaseAction(state: ParseState): Action {
+  expectKeyword(state, "rest");
+  expectKeyword(state, "by");
+  const duration = parseDuration(state);
+  const scope = parseOptionalScope(state);
+
+  return {
+    type: "increase_rest",
+    params: { duration },
+    scope,
+  };
+}
+
+function parseOptionalScope(state: ParseState): ActionScope {
+  const tok = currentToken(state);
+  if (tok.type === "keyword" && tok.value === "scope") {
+    advance(state);
+    const scopeStr = expectBareWord(state);
+    if (ACTION_SCOPE_SET.has(scopeStr)) return scopeStr as ActionScope;
+    return "plan";
+  }
+  return "plan";
+}
+
+function parseOptionalPlacement(
+  state: ParseState,
+): { type: string; target: string } | null {
+  const tok = currentToken(state);
+  if (tok.type === "keyword") {
+    switch (tok.value) {
+      case "before": {
+        advance(state);
+        const target = expectBareWord(state);
+        return { type: "before", target };
+      }
+      case "after": {
+        advance(state);
+        const target = expectBareWord(state);
+        return { type: "after", target };
+      }
+      case "in": {
+        advance(state);
+        const target = expectBareWord(state);
+        return { type: "in", target };
+      }
+    }
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Phases Section
+// ---------------------------------------------------------------------------
+
+function parsePhasesSection(state: ParseState): Phase[] {
+  advance(state); // skip PHASES
+  skipNewlines(state);
+
+  if (currentToken(state).type === "indent") {
+    advance(state);
+    return parsePhases(state);
+  }
+  return [];
+}
+
+function parsePhases(state: ParseState): Phase[] {
+  const phases: Phase[] = [];
+
+  for (;;) {
+    skipNewlines(state);
+    const tok = currentToken(state);
+
+    if (tok.type === "keyword" && tok.value === "PHASE") {
+      phases.push(parsePhase(state));
+    } else if (tok.type === "dedent") {
+      advance(state);
+      break;
+    } else {
+      break;
+    }
+  }
+
+  return phases;
+}
+
+function parsePhase(state: ParseState): Phase {
+  advance(state); // skip PHASE
+  const name = expectString(state);
+  expectLparen(state);
+  const duration = parseDuration(state);
+  expectRparen(state);
+  expectColon(state);
+  skipNewlines(state);
+
+  if (currentToken(state).type === "indent") {
+    advance(state);
+  }
+
+  const { attrs, weeks } = parsePhaseBody(state);
+
+  return {
+    name,
+    duration,
+    goals: (attrs.goals as string[]) ?? null,
+    description: (attrs.description as string) ?? null,
+    weeks,
+  };
+}
+
+function parsePhaseBody(state: ParseState): {
+  attrs: Record<string, unknown>;
+  weeks: Week[];
+} {
+  const attrs: Record<string, unknown> = {};
+  const weeks: Week[] = [];
+
+  for (;;) {
+    skipNewlines(state);
+    const tok = currentToken(state);
+
+    if (tok.type === "keyword") {
+      switch (tok.value) {
+        case "goals":
+          advance(state);
+          attrs.goals = parseEnumList(state);
+          continue;
+        case "description":
+          advance(state);
+          attrs.description = expectString(state);
+          continue;
+        case "WEEK":
+          weeks.push(parseWeek(state));
+          continue;
+        default:
+          break;
+      }
+    }
+
+    if (tok.type === "dedent") {
+      advance(state);
+      break;
+    }
+
+    break;
+  }
+
+  return { attrs, weeks };
+}
+
+function parseWeek(state: ParseState): Week {
+  advance(state); // skip WEEK
+  const number = expectNumber(state);
+
+  let name: string | null = null;
+  if (currentToken(state).type === "string") {
+    name = currentToken(state).value as string;
+    advance(state);
+  }
+
+  expectColon(state);
+  skipNewlines(state);
+
+  if (currentToken(state).type === "indent") {
+    advance(state);
+  }
+
+  const days = parseDays(state);
+
+  return {
+    number: Math.trunc(number),
+    name,
+    days,
+  };
+}
+
+function parseDays(state: ParseState): Day[] {
+  const days: Day[] = [];
+
+  for (;;) {
+    skipNewlines(state);
+    const tok = currentToken(state);
+
+    if (tok.type === "keyword" && tok.value === "DAY") {
+      days.push(parseDay(state));
+    } else if (tok.type === "dedent") {
+      advance(state);
+      break;
+    } else {
+      break;
+    }
+  }
+
+  return days;
+}
+
+function parseDay(state: ParseState): Day {
+  advance(state); // skip DAY
+
+  const dayName = parseDayName(state);
+  const dayTypeStr = expectBareWord(state);
+
+  const dayType: DayType = DAY_TYPE_SET.has(dayTypeStr)
+    ? (dayTypeStr as DayType)
+    : (GRAMMAR.day_type[0] as DayType);
+
+  const duration = parseDurationInline(state);
+
+  let label: string | null = null;
+  if (currentToken(state).type === "string") {
+    label = currentToken(state).value as string;
+    advance(state);
+  }
+
+  expectColon(state);
+  skipNewlines(state);
+
+  if (currentToken(state).type === "indent") {
+    advance(state);
+  }
+
+  const { attrs, blocks } = parseDayBody(state);
+
+  return {
+    day_name: dayName,
+    day_type: dayType,
+    duration,
+    label,
+    schedule: (attrs.schedule as [SchedulePref, ScheduleFlex]) ?? null,
+    blocks,
+    notes: (attrs.notes as string) ?? null,
+  };
+}
+
+function parseDayName(state: ParseState): string | number {
+  const tok = currentToken(state);
+
+  if (tok.type === "keyword" && DAY_NAME_SET.has(tok.value as string)) {
+    advance(state);
+    return tok.value as string;
+  }
+
+  if (tok.type === "number") {
+    advance(state);
+    return Math.trunc(tok.value as number);
+  }
+
+  if (tok.type === "bare_word") {
+    advance(state);
+    return tok.value as string;
+  }
+
+  return "Monday";
+}
+
+function parseDayBody(state: ParseState): {
+  attrs: Record<string, unknown>;
+  blocks: Block[];
+} {
+  const attrs: Record<string, unknown> = {};
+  const blocks: Block[] = [];
+
+  for (;;) {
+    skipNewlines(state);
+    const tok = currentToken(state);
+
+    if (tok.type === "keyword") {
+      if (tok.value === "schedule") {
+        advance(state);
+        const pref = expectBareWord(state);
+        const flex = expectBareWord(state);
+        attrs.schedule = [parseSchedulePref(pref), parseScheduleFlex(flex)];
+        continue;
+      }
+
+      if (tok.value === "notes") {
+        advance(state);
+        attrs.notes = expectString(state);
+        continue;
+      }
+
+      if (BLOCK_TYPE_SET.has(tok.value as string)) {
+        blocks.push(parseBlock(state));
+        continue;
+      }
+    }
+
+    if (tok.type === "dedent") {
+      advance(state);
+      break;
+    }
+
+    break;
+  }
+
+  return { attrs, blocks };
+}
+
+function parseSchedulePref(value: string): SchedulePref {
+  if (SCHEDULE_PREF_SET.has(value)) return value as SchedulePref;
+  return "any";
+}
+
+function parseScheduleFlex(value: string): ScheduleFlex {
+  if (SCHEDULE_FLEX_SET.has(value)) return value as ScheduleFlex;
+  return "flexible";
+}
+
+// ---------------------------------------------------------------------------
+// Blocks and Activities
+// ---------------------------------------------------------------------------
+
+function parseBlock(state: ParseState): Block {
+  const blockTypeStr = expectBareWord(state);
+
+  const blockType: BlockType = BLOCK_TYPE_SET.has(blockTypeStr)
+    ? (blockTypeStr as BlockType)
+    : (GRAMMAR.block_type[1] as BlockType); // default "main"
+
+  // Optional structure
+  let structure: BlockStructure | null = null;
+  const structTok = currentToken(state);
+  if (
+    (structTok.type === "keyword" || structTok.type === "bare_word") &&
+    BLOCK_STRUCTURE_SET.has(structTok.value as string)
+  ) {
+    structure = structTok.value as BlockStructure;
+    advance(state);
+  }
+
+  expectColon(state);
+  skipNewlines(state);
+
+  if (currentToken(state).type === "indent") {
+    advance(state);
+  }
+
+  const { attrs, activities } = parseBlockBody(state, blockType);
+
+  return {
+    type: blockType,
+    structure,
+    rounds: (attrs.rounds as number) ?? null,
+    rest_between_rounds: (attrs.rest_between_rounds as Duration) ?? null,
+    activities,
+  };
+}
+
+function parseBlockBody(
+  state: ParseState,
+  blockType: BlockType,
+): { attrs: Record<string, unknown>; activities: Activity[] } {
+  const attrs: Record<string, unknown> = {};
+  const activities: Activity[] = [];
+
+  for (;;) {
+    skipNewlines(state);
+    const tok = currentToken(state);
+
+    if (tok.type === "keyword") {
+      switch (tok.value) {
+        case "rounds":
+          advance(state);
+          attrs.rounds = Math.trunc(expectNumber(state));
+          continue;
+        case "rest_between_rounds":
+          advance(state);
+          attrs.rest_between_rounds = parseDuration(state);
+          continue;
+        case "cardio":
+          activities.push(parseCardioActivity(state));
+          continue;
+        case "nutrition":
+          activities.push(parseNutritionActivity(state));
+          continue;
+        case "meditation":
+          activities.push(parseMeditationActivity(state));
+          continue;
+        case "recovery":
+          activities.push(parseRecoveryActivity(state));
+          continue;
+        case "habit":
+          activities.push(parseHabitActivity(state));
+          continue;
+        default:
+          break;
+      }
+    }
+
+    if (tok.type === "bare_word") {
+      if (blockType === "cooldown") {
+        activities.push(parseRecoveryExerciseAsActivity(state));
+      } else {
+        activities.push(parseExerciseOrSimpleActivity(state));
+      }
+      continue;
+    }
+
+    if (tok.type === "dedent") {
+      advance(state);
+      break;
+    }
+
+    break;
+  }
+
+  return { attrs, activities };
+}
+
+// ---------------------------------------------------------------------------
+// Exercise / Simple Activity dispatch
+// ---------------------------------------------------------------------------
+
+function parseExerciseOrSimpleActivity(state: ParseState): Activity {
+  const name = expectBareWord(state);
+  const tok = currentToken(state);
+
+  if (tok.type === "number") {
+    const setsOrDuration = tok.value as number;
+    advance(state);
+
+    const next = currentToken(state);
+
+    // Check for "x" (sets x reps)
+    if (
+      (next.type === "keyword" && next.value === "x") ||
+      (next.type === "bare_word" && next.value === "x")
+    ) {
+      advance(state); // skip "x"
+      const reps = parseRepsSpec(state);
+      const modifiers = parseExerciseModifiers(state);
+
+      // Validate the exercise ref
+      validateExerciseRef(state, name);
+
+      return {
+        kind: "exercise",
+        exercise_ref: name,
+        name: (modifiers.name as string) ?? null,
+        sets: Math.trunc(setsOrDuration),
+        reps,
+        rpe: (modifiers.rpe as number) ?? null,
+        rir: (modifiers.rir as number) ?? null,
+        tempo: (modifiers.tempo as string) ?? null,
+        rest: (modifiers.rest as Duration) ?? null,
+        weight: (modifiers.weight as Weight) ?? null,
+      };
+    }
+
+    // Check for duration unit after number (e.g., "jumping_jacks 2m")
+    if (
+      next.type === "bare_word" &&
+      TIME_UNIT_SHORT_SET.has(next.value as string)
+    ) {
+      advance(state);
+      return {
+        kind: "simple",
+        name,
+        duration: {
+          value: setsOrDuration,
+          unit: parseTimeUnit(next.value as string),
+        },
+        params: null,
+      };
+    }
+
+    // Simple activity with number only (assume minutes)
+    return {
+      kind: "simple",
+      name,
+      duration: { value: setsOrDuration, unit: "minutes" },
+      params: null,
+    };
+  }
+
+  // Simple activity without parameters, check for optional inline duration
+  const duration = parseOptionalInlineDuration(state);
+
+  return {
+    kind: "simple",
+    name,
+    duration,
+    params: null,
+  };
+}
+
+function validateExerciseRef(state: ParseState, ref: string): void {
+  const result = validate(ref);
+  if (!result.ok) {
+    addError(
+      state,
+      unknownExerciseRef(ref, currentLocation(state), result.suggestions),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Reps Spec: single | range | range+target
+// ---------------------------------------------------------------------------
+
+function parseRepsSpec(state: ParseState): RepsSpec {
+  const first = expectNumber(state);
+
+  if (currentToken(state).type === "range") {
+    advance(state);
+    const second = expectNumber(state);
+
+    // Check for target
+    if (
+      currentToken(state).type === "keyword" &&
+      currentToken(state).value === "target"
+    ) {
+      advance(state);
+      const target = expectNumber(state);
+      return [
+        Math.trunc(first),
+        Math.trunc(second),
+        Math.trunc(target),
+      ];
+    }
+
+    return [Math.trunc(first), Math.trunc(second)];
+  }
+
+  return Math.trunc(first);
+}
+
+// ---------------------------------------------------------------------------
+// Exercise Modifiers: rpe, rir, tempo, rest, weight, name
+// ---------------------------------------------------------------------------
+
+function parseExerciseModifiers(
+  state: ParseState,
+): Record<string, unknown> {
+  const modifiers: Record<string, unknown> = {};
+
+  for (;;) {
+    const tok = currentToken(state);
+    if (tok.type !== "keyword") break;
+
+    switch (tok.value) {
+      case "rpe":
+        advance(state);
+        modifiers.rpe = Math.trunc(expectNumber(state));
+        continue;
+      case "rir":
+        advance(state);
+        modifiers.rir = Math.trunc(expectNumber(state));
+        continue;
+      case "tempo":
+        advance(state);
+        modifiers.tempo = parseTempo(state);
+        continue;
+      case "rest":
+        advance(state);
+        modifiers.rest = parseDuration(state);
+        continue;
+      case "weight":
+        advance(state);
+        modifiers.weight = parseWeightSpec(state);
+        continue;
+      case "name":
+        advance(state);
+        modifiers.name = expectString(state);
+        continue;
+      default:
+        return modifiers;
+    }
+  }
+
+  return modifiers;
+}
+
+function parseTempo(state: ParseState): string {
+  const tok = currentToken(state);
+
+  if (tok.type === "number") {
+    const first = tok.value as number;
+    advance(state);
+
+    if (currentToken(state).type === "minus") {
+      advance(state);
+      const second = expectNumber(state);
+      expectMinus(state);
+      const third = expectNumber(state);
+      expectMinus(state);
+      const fourth = expectNumber(state);
+      return `${Math.trunc(first)}-${Math.trunc(second)}-${Math.trunc(third)}-${Math.trunc(fourth)}`;
+    }
+
+    return `${Math.trunc(first)}`;
+  }
+
+  if (tok.type === "bare_word" && (tok.value as string).length === 7) {
+    advance(state);
+    return tok.value as string;
+  }
+
+  return "2-0-2-0";
+}
+
+function parseWeightSpec(state: ParseState): Weight {
+  const tok = currentToken(state);
+
+  if (tok.type === "keyword" && tok.value === "bodyweight") {
+    advance(state);
+    return { type: "bodyweight", value: null, unit: null };
+  }
+
+  if (tok.type === "number") {
+    const value = tok.value as number;
+    advance(state);
+    const unit = expectBareWord(state);
+
+    const type: WeightType =
+      unit === "percentage_1rm" ? "percentage_1rm" : "absolute";
+
+    return { type, value, unit };
+  }
+
+  return { type: "bodyweight", value: null, unit: null };
+}
+
+function parseOptionalInlineDuration(
+  state: ParseState,
+): Duration | null {
+  const tok = currentToken(state);
+
+  if (tok.type === "number") {
+    const value = tok.value as number;
+    advance(state);
+
+    const next = currentToken(state);
+    if (next.type === "bare_word" && TIME_UNIT_SHORT_SET.has(next.value as string)) {
+      advance(state);
+      return { value, unit: parseTimeUnit(next.value as string) };
+    }
+
+    // Put back - number without unit isn't an inline duration
+    state.pos--;
+    return null;
+  }
+
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Cardio Activity
+// ---------------------------------------------------------------------------
+
+function parseCardioActivity(state: ParseState): Cardio {
+  advance(state); // skip "cardio"
+  const modality = expectBareWord(state);
+  const cardioTypeStr = expectBareWord(state);
+  expectColon(state);
+  skipNewlines(state);
+
+  if (currentToken(state).type === "indent") {
+    advance(state);
+  }
+
+  const attrs = parseCardioBody(state);
+
+  const cardioType: CardioType = CARDIO_TYPE_SET.has(cardioTypeStr)
+    ? (cardioTypeStr as CardioType)
+    : (GRAMMAR.cardio_type[0] as CardioType);
+
+  return {
+    kind: "cardio",
+    modality,
+    cardio_type: cardioType,
+    total_duration: (attrs.total_duration as Duration) ?? {
+      value: 0,
+      unit: "minutes",
+    },
+    zone: (attrs.zone as number) ?? null,
+    intensity: (attrs.intensity as Intensity) ?? null,
+    intervals: (attrs.intervals as IntervalPattern) ?? null,
+  };
+}
+
+function parseCardioBody(
+  state: ParseState,
+): Record<string, unknown> {
+  const attrs: Record<string, unknown> = {};
+
+  for (;;) {
+    skipNewlines(state);
+    const tok = currentToken(state);
+
+    if (tok.type === "keyword") {
+      switch (tok.value) {
+        case "total":
+          advance(state);
+          attrs.total_duration = parseDuration(state);
+          continue;
+        case "zone":
+          advance(state);
+          attrs.zone = Math.trunc(expectNumber(state));
+          continue;
+        case "intensity":
+          advance(state);
+          attrs.intensity = parseIntensity(state);
+          continue;
+        default:
+          break;
+      }
+    }
+
+    // Interval pattern: starts with a number
+    if (tok.type === "number") {
+      attrs.intervals = parseIntervalPattern(state);
+      continue;
+    }
+
+    if (tok.type === "dedent") {
+      advance(state);
+      break;
+    }
+
+    break;
+  }
+
+  return attrs;
+}
+
+function parseIntensity(state: ParseState): Intensity | null {
+  const tok = currentToken(state);
+
+  if (tok.type !== "keyword") return null;
+
+  switch (tok.value) {
+    case "rpe": {
+      advance(state);
+      const value = expectNumber(state);
+      return { type: "rpe", value, range: null };
+    }
+    case "heart_rate_zone": {
+      advance(state);
+      const value = Math.trunc(expectNumber(state));
+      return { type: "heart_rate_zone", value, range: null };
+    }
+    case "bpm": {
+      advance(state);
+      const min = expectNumber(state);
+      expectRange(state);
+      const max = expectNumber(state);
+      return {
+        type: "bpm",
+        value: null,
+        range: [Math.trunc(min), Math.trunc(max)],
+      };
+    }
+    case "pace": {
+      advance(state);
+      const pace = expectString(state);
+      return { type: "pace", value: pace, range: null };
+    }
+    default:
+      return null;
+  }
+}
+
+function parseIntervalPattern(state: ParseState): IntervalPattern {
+  const work = expectNumber(state);
+
+  // Expect 's' for seconds
+  if (
+    currentToken(state).type === "bare_word" &&
+    currentToken(state).value === "s"
+  ) {
+    advance(state);
+  }
+
+  expectKeyword(state, "work");
+  expectSlash(state);
+  const restSeconds = expectNumber(state);
+
+  if (
+    currentToken(state).type === "bare_word" &&
+    currentToken(state).value === "s"
+  ) {
+    advance(state);
+  }
+
+  expectKeyword(state, "rest");
+
+  // Handle both "x" as keyword and bare_word
+  const xTok = currentToken(state);
+  if (
+    (xTok.type === "keyword" || xTok.type === "bare_word") &&
+    xTok.value === "x"
+  ) {
+    advance(state);
+  }
+
+  const repeats = expectNumber(state);
+
+  return {
+    work_seconds: Math.trunc(work),
+    rest_seconds: Math.trunc(restSeconds),
+    repeats: Math.trunc(repeats),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Nutrition Activity
+// ---------------------------------------------------------------------------
+
+function parseNutritionActivity(state: ParseState): Nutrition {
+  advance(state); // skip "nutrition"
+  const category = expectBareWord(state);
+  expectColon(state);
+  skipNewlines(state);
+
+  if (currentToken(state).type === "indent") {
+    advance(state);
+  }
+
+  const attrs = parseNutritionBody(state);
+
+  return {
+    kind: "nutrition",
+    category,
+    timing: (attrs.timing as NutritionTiming) ?? null,
+    macros: (attrs.macros as Macros) ?? null,
+    calories: (attrs.calories as [number, number]) ?? null,
+    suggestions: (attrs.suggestions as string[]) ?? null,
+  };
+}
+
+function parseNutritionBody(
+  state: ParseState,
+): Record<string, unknown> {
+  const attrs: Record<string, unknown> = {};
+
+  for (;;) {
+    skipNewlines(state);
+    const tok = currentToken(state);
+
+    if (tok.type === "keyword") {
+      switch (tok.value) {
+        case "timing":
+          advance(state);
+          attrs.timing = parseNutritionTiming(state);
+          continue;
+        case "protein": {
+          advance(state);
+          const range = parseMacroRange(state);
+          const macros: Macros = (attrs.macros as Macros) ?? {
+            protein: null,
+            carbs: null,
+            fat: null,
+          };
+          macros.protein = range;
+          attrs.macros = macros;
+          continue;
+        }
+        case "carbs": {
+          advance(state);
+          const range = parseMacroRange(state);
+          const macros: Macros = (attrs.macros as Macros) ?? {
+            protein: null,
+            carbs: null,
+            fat: null,
+          };
+          macros.carbs = range;
+          attrs.macros = macros;
+          continue;
+        }
+        case "fat": {
+          advance(state);
+          const range = parseFatRange(state);
+          const macros: Macros = (attrs.macros as Macros) ?? {
+            protein: null,
+            carbs: null,
+            fat: null,
+          };
+          macros.fat = range;
+          attrs.macros = macros;
+          continue;
+        }
+        case "calories": {
+          advance(state);
+          const min = expectNumber(state);
+          expectRange(state);
+          const max = expectNumber(state);
+          attrs.calories = [Math.trunc(min), Math.trunc(max)];
+          continue;
+        }
+        case "suggestions":
+          advance(state);
+          expectColon(state);
+          skipNewlines(state);
+          expectIndent(state);
+          attrs.suggestions = parseSuggestionList(state);
+          continue;
+        default:
+          break;
+      }
+    }
+
+    if (tok.type === "dedent") {
+      advance(state);
+      break;
+    }
+
+    break;
+  }
+
+  return attrs;
+}
+
+function parseNutritionTiming(
+  state: ParseState,
+): NutritionTiming | null {
+  const tok = currentToken(state);
+  if (tok.type !== "keyword") return null;
+
+  switch (tok.value) {
+    case "after_workout": {
+      advance(state);
+      expectPlus(state);
+      const duration = parseDuration(state);
+      return { type: "after_workout", duration, time: null };
+    }
+    case "before_workout": {
+      advance(state);
+      expectMinus(state);
+      const duration = parseDuration(state);
+      return { type: "before_workout", duration, time: null };
+    }
+    case "at": {
+      advance(state);
+      const time = expectTime(state);
+      return { type: "at_time", duration: null, time };
+    }
+    default:
+      return null;
+  }
+}
+
+function parseMacroRange(state: ParseState): MacroRange {
+  const min = expectNumber(state);
+  expectRange(state);
+  const max = expectNumber(state);
+
+  // Skip "g" unit
+  if (
+    currentToken(state).type === "bare_word" &&
+    currentToken(state).value === "g"
+  ) {
+    advance(state);
+  }
+
+  return [Math.trunc(min), Math.trunc(max)];
+}
+
+function parseFatRange(state: ParseState): MacroRange {
+  if (currentToken(state).type === "lte") {
+    advance(state);
+    const max = expectNumber(state);
+
+    if (
+      currentToken(state).type === "bare_word" &&
+      currentToken(state).value === "g"
+    ) {
+      advance(state);
+    }
+
+    // For fat with "<=", set min to 0
+    return [0, Math.trunc(max)];
+  }
+
+  return parseMacroRange(state);
+}
+
+function parseSuggestionList(state: ParseState): string[] {
+  const suggestions: string[] = [];
+
+  for (;;) {
+    skipNewlines(state);
+    const tok = currentToken(state);
+
+    if (tok.type === "minus") {
+      advance(state);
+      const value = parseValue(state);
+      suggestions.push(String(value ?? ""));
+    } else if (tok.type === "dedent") {
+      advance(state);
+      break;
+    } else {
+      break;
+    }
+  }
+
+  return suggestions;
+}
+
+// ---------------------------------------------------------------------------
+// Meditation Activity
+// ---------------------------------------------------------------------------
+
+function parseMeditationActivity(state: ParseState): Meditation {
+  advance(state); // skip "meditation"
+  const category = expectBareWord(state);
+  expectColon(state);
+  skipNewlines(state);
+
+  if (currentToken(state).type === "indent") {
+    advance(state);
+  }
+
+  const attrs = parseMeditationBody(state);
+
+  return {
+    kind: "meditation",
+    category,
+    duration: (attrs.duration as Duration) ?? { value: 0, unit: "minutes" },
+    guided: (attrs.guided as boolean) ?? null,
+    audio_id: (attrs.audio_id as string) ?? null,
+  };
+}
+
+function parseMeditationBody(
+  state: ParseState,
+): Record<string, unknown> {
+  const attrs: Record<string, unknown> = {};
+
+  for (;;) {
+    skipNewlines(state);
+    const tok = currentToken(state);
+
+    if (tok.type === "keyword") {
+      switch (tok.value) {
+        case "duration":
+          advance(state);
+          attrs.duration = parseDuration(state);
+          continue;
+        case "guided":
+          advance(state);
+          attrs.guided = expectBoolean(state);
+          continue;
+        case "audio":
+          advance(state);
+          attrs.audio_id = expectBareWord(state);
+          continue;
+        default:
+          break;
+      }
+    }
+
+    if (tok.type === "dedent") {
+      advance(state);
+      break;
+    }
+
+    break;
+  }
+
+  return attrs;
+}
+
+// ---------------------------------------------------------------------------
+// Recovery Activity
+// ---------------------------------------------------------------------------
+
+function parseRecoveryActivity(state: ParseState): Recovery {
+  advance(state); // skip "recovery"
+  const category = expectBareWord(state);
+  expectColon(state);
+  skipNewlines(state);
+
+  if (currentToken(state).type === "indent") {
+    advance(state);
+  }
+
+  const { attrs, exercises } = parseRecoveryBody(state);
+
+  return {
+    kind: "recovery",
+    category,
+    duration: (attrs.duration as Duration) ?? { value: 0, unit: "minutes" },
+    exercises: exercises.length === 0 ? null : exercises,
+  };
+}
+
+function parseRecoveryBody(state: ParseState): {
+  attrs: Record<string, unknown>;
+  exercises: RecoveryExercise[];
+} {
+  const attrs: Record<string, unknown> = {};
+  const exercises: RecoveryExercise[] = [];
+
+  for (;;) {
+    skipNewlines(state);
+    const tok = currentToken(state);
+
+    if (tok.type === "keyword" && tok.value === "duration") {
+      advance(state);
+      attrs.duration = parseDuration(state);
+      continue;
+    }
+
+    if (tok.type === "bare_word") {
+      exercises.push(parseRecoveryExercise(state));
+      continue;
+    }
+
+    if (tok.type === "dedent") {
+      advance(state);
+      break;
+    }
+
+    break;
+  }
+
+  return { attrs, exercises };
+}
+
+function parseRecoveryExercise(state: ParseState): RecoveryExercise {
+  const name = expectBareWord(state);
+  const hold = expectNumber(state);
+
+  // Skip "s" for seconds
+  if (
+    currentToken(state).type === "bare_word" &&
+    currentToken(state).value === "s"
+  ) {
+    advance(state);
+  }
+
+  // Handle both "x" as keyword and bare_word
+  const xTok = currentToken(state);
+  if (
+    (xTok.type === "keyword" || xTok.type === "bare_word") &&
+    xTok.value === "x"
+  ) {
+    advance(state);
+  }
+
+  const reps = expectNumber(state);
+
+  let sides: RecoverySides | null = null;
+  if (
+    currentToken(state).type === "keyword" &&
+    currentToken(state).value === "sides"
+  ) {
+    advance(state);
+    const sideStr = expectBareWord(state);
+    sides = RECOVERY_SIDES_SET.has(sideStr)
+      ? (sideStr as RecoverySides)
+      : (GRAMMAR.recovery_sides[0] as RecoverySides);
+  }
+
+  return {
+    name,
+    hold_seconds: Math.trunc(hold),
+    reps: Math.trunc(reps),
+    sides,
+  };
+}
+
+/** Wraps a recovery exercise as a Recovery Activity for cooldown blocks */
+function parseRecoveryExerciseAsActivity(state: ParseState): Recovery {
+  const exercise = parseRecoveryExercise(state);
+  return {
+    kind: "recovery",
+    category: "cooldown",
+    duration: { value: 0, unit: "minutes" },
+    exercises: [exercise],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Habit Activity
+// ---------------------------------------------------------------------------
+
+function parseHabitActivity(state: ParseState): Habit {
+  advance(state); // skip "habit"
+  const category = expectBareWord(state);
+  expectColon(state);
+  skipNewlines(state);
+
+  if (currentToken(state).type === "indent") {
+    advance(state);
+  }
+
+  const attrs = parseHabitBody(state);
+
+  return {
+    kind: "habit",
+    category,
+    target: (attrs.target as number) ?? 0,
+    target_unit: (attrs.target_unit as string) ?? "",
+    frequency: (attrs.frequency as string) ?? null,
+    reminders: (attrs.reminders as string[]) ?? null,
+  };
+}
+
+function parseHabitBody(state: ParseState): Record<string, unknown> {
+  const attrs: Record<string, unknown> = {};
+
+  for (;;) {
+    skipNewlines(state);
+    const tok = currentToken(state);
+
+    if (tok.type === "keyword") {
+      switch (tok.value) {
+        case "target": {
+          advance(state);
+          const value = expectNumber(state);
+          const unit = expectBareWord(state);
+          attrs.target = value;
+          attrs.target_unit = unit;
+          continue;
+        }
+        case "frequency":
+          advance(state);
+          attrs.frequency = expectBareWord(state);
+          continue;
+        case "reminders":
+          advance(state);
+          attrs.reminders = parseTimeList(state);
+          continue;
+        default:
+          break;
+      }
+    }
+
+    if (tok.type === "dedent") {
+      advance(state);
+      break;
+    }
+
+    break;
+  }
+
+  return attrs;
+}
+
+function parseTimeList(state: ParseState): string[] {
+  const times: string[] = [];
+
+  for (;;) {
+    const tok = currentToken(state);
+    if (tok.type === "time") {
+      times.push(tok.value as string);
+      advance(state);
+      maybeSkipComma(state);
+    } else {
+      break;
+    }
+  }
+
+  return times;
+}
+
+// ---------------------------------------------------------------------------
+// Progress Section
+// ---------------------------------------------------------------------------
+
+function parseProgressSection(state: ParseState): Progress {
+  advance(state); // skip PROGRESS
+  skipNewlines(state);
+
+  if (currentToken(state).type === "indent") {
+    advance(state);
+    const attrs = parseProgressBody(state);
+
+    return {
+      checkpoints: (attrs.checkpoints as Checkpoint[]) ?? null,
+      points: (attrs.points as PointsConfig) ?? null,
+      achievements: (attrs.achievements as Achievement[]) ?? null,
+      streaks: (attrs.streaks as StreaksConfig) ?? null,
+    };
+  }
+
+  return {
+    checkpoints: null,
+    points: null,
+    achievements: null,
+    streaks: null,
+  };
+}
+
+function parseProgressBody(
+  state: ParseState,
+): Record<string, unknown> {
+  const attrs: Record<string, unknown> = {};
+
+  for (;;) {
+    skipNewlines(state);
+    const tok = currentToken(state);
+
+    if (tok.type === "keyword") {
+      switch (tok.value) {
+        case "checkpoints":
+          advance(state);
+          expectColon(state);
+          skipNewlines(state);
+          expectIndent(state);
+          attrs.checkpoints = parseCheckpoints(state);
+          continue;
+        case "points": {
+          advance(state);
+          const enabled = expectEnabledDisabled(state);
+          const rules = parsePointsRules(state);
+          attrs.points = { enabled, rules } as PointsConfig;
+          continue;
+        }
+        case "achievements":
+          advance(state);
+          expectColon(state);
+          skipNewlines(state);
+          expectIndent(state);
+          attrs.achievements = parseAchievements(state);
+          continue;
+        case "streaks": {
+          advance(state);
+          const enabled = expectEnabledDisabled(state);
+          const types = parseStreaksTypes(state);
+          attrs.streaks = { enabled, types } as StreaksConfig;
+          continue;
+        }
+        default:
+          break;
+      }
+    }
+
+    if (tok.type === "dedent") {
+      advance(state);
+      break;
+    }
+
+    break;
+  }
+
+  return attrs;
+}
+
+function parseCheckpoints(state: ParseState): Checkpoint[] {
+  const checkpoints: Checkpoint[] = [];
+
+  for (;;) {
+    skipNewlines(state);
+    const tok = currentToken(state);
+
+    if (tok.type === "keyword" && tok.value === "checkpoint") {
+      checkpoints.push(parseCheckpoint(state));
+    } else if (tok.type === "dedent") {
+      advance(state);
+      break;
+    } else {
+      break;
+    }
+  }
+
+  return checkpoints;
+}
+
+function parseCheckpoint(state: ParseState): Checkpoint {
+  advance(state); // skip "checkpoint"
+  const name = expectString(state);
+  expectColon(state);
+  skipNewlines(state);
+  expectIndent(state);
+  const attrs = parseCheckpointBody(state);
+
+  return {
+    name,
+    trigger: (attrs.trigger as CheckpointTrigger) ?? { type: "manual" },
+    measurements: (attrs.measurements as string[]) ?? null,
+    questions: (attrs.questions as string[]) ?? null,
+  };
+}
+
+function parseCheckpointBody(
+  state: ParseState,
+): Record<string, unknown> {
+  const attrs: Record<string, unknown> = {};
+
+  for (;;) {
+    skipNewlines(state);
+    const tok = currentToken(state);
+
+    if (tok.type === "keyword") {
+      switch (tok.value) {
+        case "trigger":
+          advance(state);
+          attrs.trigger = parseTrigger(state);
+          continue;
+        case "measure":
+          advance(state);
+          expectColon(state);
+          skipNewlines(state);
+          expectIndent(state);
+          attrs.measurements = parseStringList(state);
+          continue;
+        case "ask":
+          advance(state);
+          expectColon(state);
+          skipNewlines(state);
+          expectIndent(state);
+          attrs.questions = parseStringList(state);
+          continue;
+        default:
+          break;
+      }
+    }
+
+    if (tok.type === "dedent") {
+      advance(state);
+      break;
+    }
+
+    break;
+  }
+
+  return attrs;
+}
+
+function parseTrigger(state: ParseState): CheckpointTrigger {
+  const tok = currentToken(state);
+
+  if (tok.type === "keyword") {
+    switch (tok.value) {
+      case "time": {
+        advance(state);
+        expectKeyword(state, "week");
+        const week = expectNumber(state);
+        expectKeyword(state, "day");
+        const day = expectNumber(state);
+        return {
+          type: "time",
+          every: Math.trunc(week),
+          unit_count: Math.trunc(day),
+        };
+      }
+      case "completion":
+        advance(state);
+        return { type: "completion" };
+      case "manual":
+        advance(state);
+        return { type: "manual" };
+    }
+  }
+
+  return { type: "manual" };
+}
+
+function parseStringList(state: ParseState): string[] {
+  const items: string[] = [];
+
+  for (;;) {
+    skipNewlines(state);
+    const tok = currentToken(state);
+
+    if (tok.type === "minus") {
+      advance(state);
+      const next = currentToken(state);
+      if (next.type === "string") {
+        items.push(next.value as string);
+        advance(state);
+      } else if (next.type === "bare_word") {
+        items.push(next.value as string);
+        advance(state);
+      } else {
+        items.push("");
+      }
+    } else if (tok.type === "dedent") {
+      advance(state);
+      break;
+    } else {
+      break;
+    }
+  }
+
+  return items;
+}
+
+function parsePointsRules(
+  state: ParseState,
+): PointsRule[] | null {
+  if (currentToken(state).type !== "indent") return null;
+
+  advance(state);
+  skipNewlines(state);
+
+  if (
+    currentToken(state).type === "keyword" &&
+    currentToken(state).value === "rules"
+  ) {
+    advance(state);
+    expectColon(state);
+    skipNewlines(state);
+    expectIndent(state);
+    const rules = parsePointsRulesList(state);
+
+    if (currentToken(state).type === "dedent") {
+      advance(state);
+    }
+
+    return rules;
+  }
+
+  if (currentToken(state).type === "dedent") {
+    advance(state);
+    return null;
+  }
+
+  return null;
+}
+
+function parsePointsRulesList(state: ParseState): PointsRule[] {
+  const rules: PointsRule[] = [];
+
+  for (;;) {
+    skipNewlines(state);
+    const tok = currentToken(state);
+
+    if (tok.type === "minus") {
+      advance(state);
+      const name = expectBareWord(state);
+      const points = expectNumber(state);
+      rules.push({ activity: name, points: Math.trunc(points) });
+    } else if (tok.type === "dedent") {
+      advance(state);
+      break;
+    } else {
+      break;
+    }
+  }
+
+  return rules;
+}
+
+function parseAchievements(state: ParseState): Achievement[] {
+  const achievements: Achievement[] = [];
+
+  for (;;) {
+    skipNewlines(state);
+    const tok = currentToken(state);
+
+    if (tok.type === "keyword" && tok.value === "achievement") {
+      achievements.push(parseAchievement(state));
+    } else if (tok.type === "dedent") {
+      advance(state);
+      break;
+    } else {
+      break;
+    }
+  }
+
+  return achievements;
+}
+
+function parseAchievement(state: ParseState): Achievement {
+  advance(state); // skip "achievement"
+  const id = expectBareWord(state);
+  expectColon(state);
+  skipNewlines(state);
+  expectIndent(state);
+  const attrs = parseAchievementBody(state);
+
+  return {
+    id,
+    name: (attrs.name as string) ?? "",
+    description: (attrs.description as string) ?? "",
+    condition: (attrs.condition as string) ?? "",
+    condition_value: (attrs.condition_value as number) ?? 0,
+    points: (attrs.points as number) ?? 0,
+  };
+}
+
+function parseAchievementBody(
+  state: ParseState,
+): Record<string, unknown> {
+  const attrs: Record<string, unknown> = {};
+
+  for (;;) {
+    skipNewlines(state);
+    const tok = currentToken(state);
+
+    if (tok.type === "keyword") {
+      switch (tok.value) {
+        case "name":
+          advance(state);
+          attrs.name = expectString(state);
+          continue;
+        case "description":
+          advance(state);
+          attrs.description = expectString(state);
+          continue;
+        case "condition": {
+          advance(state);
+          const condName = expectBareWord(state);
+          const condValue = expectNumber(state);
+          attrs.condition = condName;
+          attrs.condition_value = Math.trunc(condValue);
+          continue;
+        }
+        case "points":
+          advance(state);
+          attrs.points = Math.trunc(expectNumber(state));
+          continue;
+        default:
+          break;
+      }
+    }
+
+    if (tok.type === "dedent") {
+      advance(state);
+      break;
+    }
+
+    break;
+  }
+
+  return attrs;
+}
+
+function parseStreaksTypes(state: ParseState): string[] | null {
+  if (currentToken(state).type !== "indent") return null;
+
+  advance(state);
+  skipNewlines(state);
+
+  if (
+    currentToken(state).type === "keyword" &&
+    currentToken(state).value === "types"
+  ) {
+    advance(state);
+    const types = parseEnumList(state);
+
+    if (currentToken(state).type === "dedent") {
+      advance(state);
+    }
+
+    return types;
+  }
+
+  if (currentToken(state).type === "dedent") {
+    advance(state);
+    return null;
+  }
+
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Notifications Section
+// ---------------------------------------------------------------------------
+
+function parseNotificationsSection(state: ParseState): Notification[] {
+  advance(state); // skip NOTIFICATIONS
+  skipNewlines(state);
+
+  if (currentToken(state).type === "indent") {
+    advance(state);
+    return parseNotifications(state);
+  }
+  return [];
+}
+
+function parseNotifications(state: ParseState): Notification[] {
+  const notifications: Notification[] = [];
+
+  for (;;) {
+    skipNewlines(state);
+    const tok = currentToken(state);
+
+    if (tok.type === "bare_word") {
+      notifications.push(parseNotification(state));
+    } else if (tok.type === "dedent") {
+      advance(state);
+      break;
+    } else {
+      break;
+    }
+  }
+
+  return notifications;
+}
+
+function parseNotification(state: ParseState): Notification {
+  const id = expectBareWord(state);
+  expectColon(state);
+  skipNewlines(state);
+  expectIndent(state);
+  const attrs = parseNotificationBody(state);
+
+  return {
+    id,
+    enabled: (attrs.enabled as boolean) ?? false,
+    timing: (attrs.timing as { duration: Duration; relative_to: string }) ?? null,
+    message: (attrs.message as string) ?? "",
+  };
+}
+
+function parseNotificationBody(
+  state: ParseState,
+): Record<string, unknown> {
+  const attrs: Record<string, unknown> = {};
+
+  for (;;) {
+    skipNewlines(state);
+    const tok = currentToken(state);
+
+    if (tok.type === "keyword") {
+      switch (tok.value) {
+        case "enabled":
+          advance(state);
+          attrs.enabled = expectBoolean(state);
+          continue;
+        case "timing": {
+          advance(state);
+          const duration = parseDuration(state);
+          expectKeyword(state, "before");
+          const event = expectBareWord(state);
+          attrs.timing = { duration, relative_to: event };
+          continue;
+        }
+        case "message":
+          advance(state);
+          attrs.message = expectString(state);
+          continue;
+        default:
+          break;
+      }
+    }
+
+    if (tok.type === "dedent") {
+      advance(state);
+      break;
+    }
+
+    break;
+  }
+
+  return attrs;
+}
+
+// ---------------------------------------------------------------------------
+// Rendering Section
+// ---------------------------------------------------------------------------
+
+function parseRenderingSection(state: ParseState): Rendering {
+  advance(state); // skip RENDERING
+  skipNewlines(state);
+
+  if (currentToken(state).type === "indent") {
+    advance(state);
+    const attrs = parseRenderingBody(state);
+
+    return {
+      primary_color: (attrs.primary as string) ?? null,
+      secondary_color: (attrs.secondary as string) ?? null,
+      accent_color: (attrs.accent as string) ?? null,
+      icons: (attrs.icons as Record<string, string>) ?? null,
+      difficulty_colors:
+        (attrs.difficulty_colors as Record<string, string>) ?? null,
+    };
+  }
+
+  return {
+    primary_color: null,
+    secondary_color: null,
+    accent_color: null,
+    icons: null,
+    difficulty_colors: null,
+  };
+}
+
+function parseRenderingBody(
+  state: ParseState,
+): Record<string, unknown> {
+  const attrs: Record<string, unknown> = {};
+
+  for (;;) {
+    skipNewlines(state);
+    const tok = currentToken(state);
+
+    if (tok.type === "keyword") {
+      switch (tok.value) {
+        case "primary":
+          advance(state);
+          attrs.primary = expectString(state);
+          continue;
+        case "secondary":
+          advance(state);
+          attrs.secondary = expectString(state);
+          continue;
+        case "accent":
+          advance(state);
+          attrs.accent = expectString(state);
+          continue;
+        case "icon": {
+          advance(state);
+          const iconName = expectBareWord(state);
+          expectEq(state);
+          const iconValue = expectBareWord(state);
+          const icons =
+            (attrs.icons as Record<string, string>) ?? {};
+          icons[iconName] = iconValue;
+          attrs.icons = icons;
+          continue;
+        }
+        case "difficulty_color": {
+          advance(state);
+          const difficulty = expectBareWord(state);
+          expectEq(state);
+          const color = expectString(state);
+          const colors =
+            (attrs.difficulty_colors as Record<string, string>) ?? {};
+          colors[difficulty] = color;
+          attrs.difficulty_colors = colors;
+          continue;
+        }
+        default:
+          break;
+      }
+    }
+
+    if (tok.type === "dedent") {
+      advance(state);
+      break;
+    }
+
+    break;
+  }
+
+  return attrs;
+}
+
+// ---------------------------------------------------------------------------
+// Duration Helpers
+// ---------------------------------------------------------------------------
+
+function parseDuration(state: ParseState): Duration {
+  const value = expectNumber(state);
+  const unit = expectBareWord(state);
+
+  return { value, unit: parseTimeUnit(unit) };
+}
+
+function parseDurationInline(state: ParseState): Duration {
+  const tok = currentToken(state);
+
+  if (tok.type === "number") {
+    const value = tok.value as number;
+    advance(state);
+
+    const next = currentToken(state);
+    if (
+      next.type === "bare_word" &&
+      TIME_UNIT_SHORT_SET.has(next.value as string)
+    ) {
+      advance(state);
+      return { value, unit: parseTimeUnit(next.value as string) };
+    }
+
+    // Assume minutes
+    return { value, unit: "minutes" };
+  }
+
+  return { value: 0, unit: "minutes" };
+}
+
+function parseTimeUnit(unit: string): TimeUnit {
+  switch (unit) {
+    case "s":
+    case "seconds":
+      return "seconds";
+    case "m":
+    case "minutes":
+      return "minutes";
+    case "h":
+    case "hours":
+      return "hours";
+    case "d":
+    case "days":
+      return "days";
+    case "weeks":
+      return "weeks";
+    default:
+      return "minutes";
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Tag / Enum List
+// ---------------------------------------------------------------------------
+
+function parseTagList(state: ParseState): string[] {
+  return parseEnumList(state);
+}
+
+function parseEnumList(state: ParseState): string[] {
+  const items: string[] = [];
+
+  for (;;) {
+    const tok = currentToken(state);
+
+    if (tok.type === "bare_word" || tok.type === "keyword") {
+      items.push(tok.value as string);
+      advance(state);
+      maybeSkipComma(state);
+    } else {
+      break;
+    }
+  }
+
+  return items;
+}
+
+// ---------------------------------------------------------------------------
+// Expect Helpers (lenient - return defaults on mismatch)
+// ---------------------------------------------------------------------------
+
+function expectBareWord(state: ParseState): string {
+  const tok = currentToken(state);
+  if (tok.type === "bare_word" || tok.type === "keyword") {
+    advance(state);
+    return tok.value as string;
+  }
+  // Lenient: return the value as string without advancing
+  return `${tok.value}`;
+}
+
+function expectBareWordOrKeyword(state: ParseState): string {
+  const tok = currentToken(state);
+  if (tok.type === "bare_word" || tok.type === "keyword") {
+    advance(state);
+    return tok.value as string;
+  }
+  return "";
+}
+
+function expectString(state: ParseState): string {
+  const tok = currentToken(state);
+  if (tok.type === "string") {
+    advance(state);
+    return tok.value as string;
+  }
+  return "";
+}
+
+function expectNumber(state: ParseState): number {
+  const tok = currentToken(state);
+  if (tok.type === "number") {
+    advance(state);
+    return tok.value as number;
+  }
+  return 0;
+}
+
+function expectDate(state: ParseState): string {
+  const tok = currentToken(state);
+  if (tok.type === "date") {
+    advance(state);
+    return tok.value as string;
+  }
+  return new Date().toISOString().slice(0, 10);
+}
+
+function expectTime(state: ParseState): string {
+  const tok = currentToken(state);
+  if (tok.type === "time") {
+    advance(state);
+    return tok.value as string;
+  }
+  return "00:00";
+}
+
+function expectBoolean(state: ParseState): boolean {
+  const tok = currentToken(state);
+  if (
+    (tok.type === "keyword" || tok.type === "bare_word") &&
+    (tok.value === "true" || tok.value === "false")
+  ) {
+    advance(state);
+    return tok.value === "true";
+  }
+  return false;
+}
+
+function expectEnabledDisabled(state: ParseState): boolean {
+  const tok = currentToken(state);
+  if (tok.type === "keyword") {
+    if (tok.value === "enabled") {
+      advance(state);
+      return true;
+    }
+    if (tok.value === "disabled") {
+      advance(state);
+      return false;
+    }
+  }
+  return false;
+}
+
+// ---------------------------------------------------------------------------
+// Punctuation Expect Helpers (lenient - skip if present)
+// ---------------------------------------------------------------------------
+
+function expectColon(state: ParseState): void {
+  if (currentToken(state).type === "colon") advance(state);
+}
+
+function expectLparen(state: ParseState): void {
+  if (currentToken(state).type === "lparen") advance(state);
+}
+
+function expectRparen(state: ParseState): void {
+  if (currentToken(state).type === "rparen") advance(state);
+}
+
+function expectRange(state: ParseState): void {
+  if (currentToken(state).type === "range") advance(state);
+}
+
+function expectArrow(state: ParseState): void {
+  if (currentToken(state).type === "arrow") advance(state);
+}
+
+function expectEq(state: ParseState): void {
+  if (currentToken(state).type === "eq") advance(state);
+}
+
+function expectPercent(state: ParseState): void {
+  if (currentToken(state).type === "percent") advance(state);
+}
+
+function expectPlus(state: ParseState): void {
+  if (currentToken(state).type === "plus") advance(state);
+}
+
+function expectMinus(state: ParseState): void {
+  if (currentToken(state).type === "minus") advance(state);
+}
+
+function expectSlash(state: ParseState): void {
+  if (currentToken(state).type === "slash") advance(state);
+}
+
+function expectIndent(state: ParseState): void {
+  if (currentToken(state).type === "indent") advance(state);
+}
+
+function expectKeyword(state: ParseState, expected: string): void {
+  const tok = currentToken(state);
+  if (
+    (tok.type === "keyword" || tok.type === "bare_word") &&
+    tok.value === expected
+  ) {
+    advance(state);
+  }
+}
+
+function maybeSkipComma(state: ParseState): void {
+  if (currentToken(state).type === "comma") advance(state);
+}
