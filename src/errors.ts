@@ -64,7 +64,8 @@ export type CompileErrorType =
   | "missing_section"
   | "invalid_reference"
   | "duration_mismatch"
-  | "constraint_violation";
+  | "constraint_violation"
+  | "internal_error";
 
 export interface CompileError {
   kind: "compile";
@@ -387,7 +388,7 @@ function errorKindLabel(error: WplError): string {
     case "parse":
       return "[Parse Error]";
     case "compile":
-      return "[Compile Error]";
+      return error.type === "internal_error" ? "[Internal Compiler Error]" : "[Compile Error]";
   }
 }
 

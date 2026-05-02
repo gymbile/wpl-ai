@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { tokenize } from "../src/lexer.js";
 import { parse } from "../src/parser.js";
 import { compile } from "../src/compiler.js";
+import { CompileContext } from "../src/compile-context.js";
 import type { Document } from "../src/types.js";
 
 // ---------------------------------------------------------------------------
@@ -2338,5 +2339,35 @@ PHASES
     const weeks = phases[0].weeks as Record<string, unknown>[];
     const days = weeks[0].days as Record<string, unknown>[];
     expect(days[0].estimated_duration_minutes).toBe(45);
+  });
+});
+
+describe("Compile error classification", () => {
+  it("labels unexpected throws as internal_error, not constraint_violation", () => {
+    // Monkey-patch a compiler dependency to force a throw and assert that
+    // the top-level catch labels it correctly.
+    const proto = CompileContext.prototype as unknown as {
+      withSegment: (...args: unknown[]) => unknown;
+    };
+    const original = proto.withSegment;
+    proto.withSegment = function () {
+      throw new TypeError("boom");
+    };
+    try {
+      const lex = tokenize(`PLAN "X"\nTYPE workout\n`);
+      if (!lex.ok) throw new Error("lex failed");
+      const ast = parse(lex.tokens);
+      if (!ast.ok) throw new Error("parse failed");
+      const result = compile(ast.document);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.errors).toHaveLength(1);
+        expect(result.errors[0]!.type).toBe("internal_error");
+        expect(result.errors[0]!.message).toContain("boom");
+        expect(result.errors[0]!.message).toContain("bug");
+      }
+    } finally {
+      proto.withSegment = original;
+    }
   });
 });

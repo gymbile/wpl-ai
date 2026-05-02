@@ -71,15 +71,16 @@ export function compile(
     return { ok: true, json, pointerMap: ctx.pointerMap };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    const stack = err instanceof Error ? err.stack ?? null : null;
     return {
       ok: false,
       errors: [
         {
           kind: "compile",
-          type: "constraint_violation",
-          message,
+          type: "internal_error",
+          message: `Internal compiler error: ${message}. This is a wpl-ai bug, please report it at https://github.com/gymbile/wpl-ai/issues.`,
           path: null,
-          details: null,
+          details: stack ? { stack } : null,
         },
       ],
     };
