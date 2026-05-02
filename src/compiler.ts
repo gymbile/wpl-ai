@@ -48,6 +48,7 @@ import type {
 
 import type { CompileError } from "./errors.js";
 import { CompileContext } from "./compile-context.js";
+import { isKnownExercise } from "./exercises.js";
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -108,6 +109,25 @@ function generateShortId(prefix: string): string {
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
   return `${prefix}_${hex}`;
+}
+
+/**
+ * Convert a snake_case slug into a Title Cased human-readable name.
+ * Special-cases a few well-known acronyms (HIIT, AMRAP, EMOM, RPE, RIR).
+ */
+const ACRONYMS = new Set(["hiit", "amrap", "emom", "rpe", "rir", "1rm"]);
+
+function humanise(slug: string | null | undefined): string {
+  if (!slug) return "";
+  return slug
+    .split(/[_\s-]+/)
+    .filter((w) => w.length > 0)
+    .map((w) => {
+      const lower = w.toLowerCase();
+      if (ACRONYMS.has(lower)) return lower.toUpperCase();
+      return lower.charAt(0).toUpperCase() + lower.slice(1);
+    })
+    .join(" ");
 }
 
 // ---------------------------------------------------------------------------
@@ -576,11 +596,8 @@ function compileExercise(ex: Exercise, index: number): Record<string, unknown> {
     id: `exercise_${index}`,
     type: "exercise",
     exercise_ref: ex.exercise_ref,
+    name: ex.name ?? humanise(ex.exercise_ref),
   };
-
-  if (ex.name) {
-    compiled.name = ex.name;
-  }
 
   // Build prescription
   const prescription: Record<string, unknown> = {};
@@ -605,6 +622,12 @@ function compileExercise(ex: Exercise, index: number): Record<string, unknown> {
   }
 
   if (Object.keys(prescription).length > 0) {
+    // Infer prescription.type per the canonical Elixir validator heuristic:
+    //   sets/reps -> sets_reps, duration -> time, distance -> distance.
+    // ExerciseActivity instances produced from main-block lines always carry
+    // sets/reps (timed warmup/cooldown exercises take a separate path that
+    // emits prescription.type = "time" directly).
+    prescription.type = "sets_reps";
     compiled.prescription = prescription;
   }
 
@@ -650,6 +673,7 @@ function compileCardio(cardio: Cardio, index: number): Record<string, unknown> {
   const compiled: Record<string, unknown> = {
     id: `cardio_${index}`,
     type: "cardio",
+    name: humanise(cardio.modality),
     modality: cardio.modality,
   };
 
@@ -679,6 +703,7 @@ function compileNutrition(nutrition: Nutrition, index: number): Record<string, u
   const compiled: Record<string, unknown> = {
     id: `nutrition_${index}`,
     type: "nutrition",
+    name: humanise(nutrition.category),
     category: nutrition.category,
   };
 
@@ -713,6 +738,7 @@ function compileMeditation(meditation: Meditation, index: number): Record<string
   const compiled: Record<string, unknown> = {
     id: `meditation_${index}`,
     type: "meditation",
+    name: `${humanise(meditation.category)} Meditation`,
     category: meditation.category,
   };
 
@@ -737,18 +763,38 @@ function compileMeditation(meditation: Meditation, index: number): Record<string
 // ---------------------------------------------------------------------------
 
 function compileRecovery(recovery: Recovery, index: number): Record<string, unknown> {
+  // The parser wraps cooldown stretches as Recovery activities with
+  // category: "cooldown" and a placeholder duration of {value: 0, unit: "minutes"}.
+  // Schema-wise the canonical category for stretches is "stretching", so
+  // normalise that here. Real explicit `recovery <category>:` declarations
+  // (e.g. "recovery stretching:") arrive with a non-cooldown category and are
+  // left alone.
+  const category =
+    recovery.category === "cooldown" ? "stretching" : recovery.category;
+
   const compiled: Record<string, unknown> = {
     id: `recovery_${index}`,
     type: "recovery",
-    category: recovery.category,
+    name: humanise(category),
+    category,
   };
 
-  if (recovery.duration) {
-    compiled.duration = compileDuration(recovery.duration);
+  const prescription: Record<string, unknown> = {};
+
+  // Drop placeholder zero-duration entries (parser default for synthesised
+  // cooldown wrappers). Only emit real duration values.
+  if (recovery.duration && recovery.duration.value > 0) {
+    prescription.duration = compileDuration(recovery.duration);
   }
 
   if (recovery.exercises && recovery.exercises.length > 0) {
-    compiled.exercises = recovery.exercises.map((ex, i) => compileRecoveryExercise(ex, i + 1));
+    prescription.exercises = recovery.exercises.map((ex, i) =>
+      compileRecoveryExercise(ex, i + 1),
+    );
+  }
+
+  if (Object.keys(prescription).length > 0) {
+    compiled.prescription = prescription;
   }
 
   return compiled;
@@ -785,20 +831,28 @@ function compileHabit(habit: Habit, index: number): Record<string, unknown> {
   const compiled: Record<string, unknown> = {
     id: `habit_${index}`,
     type: "habit",
+    name: humanise(habit.category),
     category: habit.category,
   };
 
+  const prescription: Record<string, unknown> = {};
+
   if (habit.target != null) {
-    compiled.target = habit.target;
-  }
-  if (habit.target_unit) {
-    compiled.target_unit = habit.target_unit;
+    const target: Record<string, unknown> = { value: habit.target };
+    if (habit.target_unit) {
+      target.unit = habit.target_unit;
+    }
+    prescription.target = target;
   }
   if (habit.frequency) {
-    compiled.frequency = habit.frequency;
+    prescription.frequency = habit.frequency;
   }
   if (habit.reminders && habit.reminders.length > 0) {
-    compiled.reminder_times = habit.reminders;
+    prescription.reminder_times = habit.reminders;
+  }
+
+  if (Object.keys(prescription).length > 0) {
+    compiled.prescription = prescription;
   }
 
   return compiled;
@@ -809,10 +863,26 @@ function compileHabit(habit: Habit, index: number): Record<string, unknown> {
 // ---------------------------------------------------------------------------
 
 function compileSimpleActivity(simple: SimpleActivity, index: number): Record<string, unknown> {
+  // Fix 2: timed warmup/cooldown lines like `arm_circles 2m` are parsed as
+  // SimpleActivity but reference real exercises. Emit them as ExerciseActivity
+  // with a time-based prescription so they validate as proper exercises.
+  if (simple.duration && isKnownExercise(simple.name)) {
+    return {
+      id: `exercise_${simple.name}_${index}`,
+      type: "exercise",
+      exercise_ref: simple.name,
+      name: humanise(simple.name),
+      prescription: {
+        type: "time",
+        duration: compileDuration(simple.duration),
+      },
+    };
+  }
+
   const compiled: Record<string, unknown> = {
     id: `activity_${index}`,
     type: "simple",
-    name: simple.name,
+    name: humanise(simple.name),
   };
 
   if (simple.duration) {

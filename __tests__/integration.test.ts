@@ -308,7 +308,8 @@ PHASES
     expect(activities).toBeDefined();
     expect(activities.length).toBe(1);
     expect(activities[0].type).toBe("simple");
-    expect(activities[0].name).toBe("jumping_jacks");
+    // Names are humanised on emission
+    expect(activities[0].name).toBe("Jumping Jacks");
     expect(activities[0].duration).toEqual({ value: 2, unit: "minutes" });
   });
 
@@ -353,8 +354,10 @@ PHASES
 
     const recovery = activities[0];
     expect(recovery.type).toBe("recovery");
-    expect(recovery.category).toBe("cooldown");
-    const exercises = recovery.exercises as Record<string, unknown>[];
+    // Synthesised cooldown stretches are normalised to category "stretching"
+    expect(recovery.category).toBe("stretching");
+    const prescription = recovery.prescription as Record<string, unknown>;
+    const exercises = prescription.exercises as Record<string, unknown>[];
     expect(exercises).toBeDefined();
     expect(exercises.length).toBe(1);
     expect(exercises[0].name).toBe("chest_stretch");
@@ -915,9 +918,11 @@ PHASES
     const habit = activities.find((a) => a.type === "habit");
     expect(habit).toBeDefined();
     expect(habit!.category).toBe("hydration");
-    expect(habit!.target).toBe(8);
-    expect(habit!.target_unit).toBe("glasses");
-    expect(habit!.frequency).toBe("daily");
+    const rx = habit!.prescription as Record<string, unknown>;
+    const target = rx.target as Record<string, unknown>;
+    expect(target.value).toBe(8);
+    expect(target.unit).toBe("glasses");
+    expect(rx.frequency).toBe("daily");
   });
 
   it("contains recovery activity in cooldown", () => {
@@ -934,8 +939,10 @@ PHASES
 
     const recovery = activities.find((a) => a.type === "recovery");
     expect(recovery).toBeDefined();
-    expect(recovery!.category).toBe("cooldown");
-    const exercises = recovery!.exercises as Record<string, unknown>[];
+    // Synthesised cooldown stretches are normalised to category "stretching"
+    expect(recovery!.category).toBe("stretching");
+    const prescription = recovery!.prescription as Record<string, unknown>;
+    const exercises = prescription.exercises as Record<string, unknown>[];
     expect(exercises[0].name).toBe("hamstring_stretch");
     expect(exercises[0].sides).toBe("both");
   });

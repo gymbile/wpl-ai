@@ -1276,7 +1276,8 @@ PHASES
     const activity = activities[0];
 
     expect(activity.type).toBe("recovery");
-    expect(activity.category).toBe("cooldown");
+    // Synthesised cooldown stretches are normalised to category "stretching"
+    expect(activity.category).toBe("stretching");
   });
 
   it("compiles recovery exercise hold_seconds and reps", () => {
@@ -1297,7 +1298,8 @@ PHASES
     const blocks = days[0].blocks as Record<string, unknown>[];
     const activities = blocks[0].activities as Record<string, unknown>[];
     const activity = activities[0];
-    const exercises = activity.exercises as Record<string, unknown>[];
+    const prescription = activity.prescription as Record<string, unknown>;
+    const exercises = prescription.exercises as Record<string, unknown>[];
     const ex = exercises[0];
     expect(ex.type).toBe("recovery_exercise");
     expect(ex.name).toBe("hamstring_stretch");
@@ -1322,7 +1324,8 @@ PHASES
     const days = weeks[0].days as Record<string, unknown>[];
     const blocks = days[0].blocks as Record<string, unknown>[];
     const activities = blocks[0].activities as Record<string, unknown>[];
-    const exercises = activities[0].exercises as Record<string, unknown>[];
+    const prescription = activities[0].prescription as Record<string, unknown>;
+    const exercises = prescription.exercises as Record<string, unknown>[];
     expect(exercises[0].sides).toBe("both");
   });
 
@@ -1347,7 +1350,8 @@ PHASES
     const activity = activities[0];
     expect(activity.type).toBe("recovery");
     expect(activity.category).toBe("stretching");
-    const duration = activity.duration as Record<string, unknown>;
+    const prescription = activity.prescription as Record<string, unknown>;
+    const duration = prescription.duration as Record<string, unknown>;
     expect(duration.value).toBe(15);
     expect(duration.unit).toBe("minutes");
   });
@@ -1409,7 +1413,9 @@ PHASES
       `habit hydration:
             target 8 glasses`,
     );
-    expect(activity.target).toBe(8);
+    const rx = activity.prescription as Record<string, unknown>;
+    const target = rx.target as Record<string, unknown>;
+    expect(target.value).toBe(8);
   });
 
   it("compiles habit target_unit", () => {
@@ -1417,7 +1423,9 @@ PHASES
       `habit hydration:
             target 8 glasses`,
     );
-    expect(activity.target_unit).toBe("glasses");
+    const rx = activity.prescription as Record<string, unknown>;
+    const target = rx.target as Record<string, unknown>;
+    expect(target.unit).toBe("glasses");
   });
 
   it("compiles habit frequency", () => {
@@ -1426,7 +1434,8 @@ PHASES
             target 8 glasses
             frequency daily`,
     );
-    expect(activity.frequency).toBe("daily");
+    const rx = activity.prescription as Record<string, unknown>;
+    expect(rx.frequency).toBe("daily");
   });
 });
 
