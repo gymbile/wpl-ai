@@ -25,7 +25,7 @@ import {
   FITNESS_LEVELS, FITNESS_LEVEL_SET,
   MEASUREMENT_METRICS, MEASUREMENT_METRIC_SET,
   WEIGHT_UNITS, WEIGHT_UNIT_SET,
-  MUSCLE_GROUPS, MUSCLE_GROUP_SET,
+  MUSCLE_GROUP_SET,
   STREAK_TYPES, STREAK_TYPE_SET,
 } from "./vocabularies.js";
 
@@ -260,12 +260,22 @@ function checkWeightOrDistanceUnit(
   // Also allow percentage, common metric keywords, and time units
   if (unit === "percentage" || unit === "%" || unit === "percentage_1rm") return;
 
-  const combined: string[] = [...WEIGHT_UNITS, ...MUSCLE_GROUPS]; // allow body measurement units
-  const combinedSet = new Set(combined);
-  if (combinedSet.has(unit)) return;
+  // Muscle-group names belong to the body_part field, not the unit field.
+  // Flag them explicitly — they previously passed silently due to a stray
+  // MUSCLE_GROUPS allowlist entry.
+  if (MUSCLE_GROUP_SET.has(unit)) {
+    const loc = findInSource(lines, unit);
+    warnings.push({
+      severity: "warning",
+      message: `Unrecognized unit "${unit}" looks like a muscle group, not a measurement unit.`,
+      ...loc,
+    });
+    return;
+  }
 
-  // Not a known unit — skip warning for freeform units like "glasses", "steps", etc.
-  // Only warn for values that look like they could be misspelled weight/distance units
+  // Not a known unit — only warn for values close enough to a weight unit
+  // to suggest a misspelling. Freeform units ("glasses", "steps") are silently
+  // ignored.
   const result = validateVocabulary(unit, WEIGHT_UNIT_SET, WEIGHT_UNITS);
   if (!result.ok && result.suggestions.length > 0) {
     const loc = findInSource(lines, unit);

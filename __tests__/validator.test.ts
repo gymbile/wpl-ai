@@ -285,6 +285,41 @@ REQUIRES
     });
   });
 
+  describe("weight/distance unit", () => {
+    it("warns when a muscle-group is used as a unit", () => {
+      // Regression: muscle-group names like "biceps" used to be silently
+      // accepted as valid weight/distance units. They should warn.
+      const source = `\
+PLAN "Test"
+TYPE workout
+
+GOALS
+  GOAL primary muscle_gain:
+    name "Bigger arms"
+    target weight 5 biceps absolute
+`;
+      const warnings = compileAndGetWarnings(source);
+      const unitWarnings = warnings.filter(w => w.message.includes("Unrecognized unit"));
+      expect(unitWarnings.length).toBeGreaterThan(0);
+      expect(unitWarnings[0]!.message).toContain("biceps");
+    });
+
+    it("does not warn for valid weight units", () => {
+      const source = `\
+PLAN "Test"
+TYPE workout
+
+GOALS
+  GOAL primary weight_loss:
+    name "Lose weight"
+    target weight 5 kg relative
+`;
+      const warnings = compileAndGetWarnings(source);
+      const unitWarnings = warnings.filter(w => w.message.includes("Unrecognized unit"));
+      expect(unitWarnings).toHaveLength(0);
+    });
+  });
+
   describe("warnings include suggestions", () => {
     it("suggests close match for typo in cardio modality", () => {
       const source = `\
