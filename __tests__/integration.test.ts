@@ -15,6 +15,7 @@ import {
   isKnownExercise,
   suggest,
   bestMatch,
+  validateExercise,
   validate,
 } from "../src/index.js";
 import type { CompileResult } from "../src/index.js";
@@ -1385,14 +1386,22 @@ describe("Re-exports from index.ts", () => {
     expect(bestMatch("xyz123")).toBeNull();
   });
 
-  it("validate is exported and works", () => {
-    expect(typeof validate).toBe("function");
-    expect(validate("push_up")).toEqual({ ok: true });
-    const invalid = validate("pushup");
+  it("validateExercise is exported and works", () => {
+    expect(typeof validateExercise).toBe("function");
+    expect(validateExercise("push_up")).toEqual({ ok: true });
+    const invalid = validateExercise("pushup");
     expect(invalid.ok).toBe(false);
     if (!invalid.ok) {
       expect(invalid.suggestions).toContain("push_up");
     }
+  });
+
+  it("validate (WPL JSON validator) is re-exported from @gymbile/wpl-validator", () => {
+    expect(typeof validate).toBe("function");
+    // Calling with an empty object should return a structured result.
+    const result = validate({});
+    expect(typeof result).toBe("object");
+    expect(result).toHaveProperty("valid");
   });
 
   it("formatErrors is exported and callable", () => {

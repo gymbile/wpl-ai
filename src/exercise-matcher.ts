@@ -78,7 +78,7 @@ export function bestMatch(unknownRef: string): string | null {
   return best && best.sim > 0.85 ? best.ref : null;
 }
 
-export function validate(ref: string): { ok: true } | { ok: false; suggestions: string[] } {
+export function validateExercise(ref: string): { ok: true } | { ok: false; suggestions: string[] } {
   if (isKnownExercise(ref)) return { ok: true };
   return { ok: false, suggestions: suggest(ref) };
 }

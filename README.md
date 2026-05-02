@@ -202,7 +202,7 @@ import {
 } from "@gymbile/wpl-ai";
 
 import { ALL_EXERCISES, isKnownExercise } from "@gymbile/wpl-ai";
-import { suggest, bestMatch, validate as validateExercise } from "@gymbile/wpl-ai";
+import { suggest, bestMatch, validateExercise } from "@gymbile/wpl-ai";
 import { validateVocabulary } from "@gymbile/wpl-ai";
 
 isKnownExercise("push_up");                   // → true

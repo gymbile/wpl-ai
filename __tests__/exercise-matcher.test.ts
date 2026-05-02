@@ -9,7 +9,7 @@ import {
   FULL_BODY,
   isKnownExercise,
 } from "../src/exercises.js";
-import { suggest, bestMatch, validate } from "../src/exercise-matcher.js";
+import { suggest, bestMatch, validateExercise } from "../src/exercise-matcher.js";
 
 // ---------------------------------------------------------------------------
 // 1. Exercise library (exercises.ts)
@@ -161,21 +161,21 @@ describe("bestMatch()", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 4. validate()
+// 4. validateExercise()
 // ---------------------------------------------------------------------------
-describe("validate()", () => {
+describe("validateExercise()", () => {
   it('returns { ok: true } for "push_up"', () => {
-    const result = validate("push_up");
+    const result = validateExercise("push_up");
     expect(result).toEqual({ ok: true });
   });
 
   it('returns { ok: true } for "deadlift"', () => {
-    const result = validate("deadlift");
+    const result = validateExercise("deadlift");
     expect(result).toEqual({ ok: true });
   });
 
   it('returns { ok: false, suggestions } for "pushup" with "push_up" in suggestions', () => {
-    const result = validate("pushup");
+    const result = validateExercise("pushup");
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.suggestions).toContain("push_up");
@@ -183,7 +183,7 @@ describe("validate()", () => {
   });
 
   it("returns { ok: false, suggestions: [] } for completely unknown input", () => {
-    const result = validate("xyz123abc");
+    const result = validateExercise("xyz123abc");
     expect(result).toEqual({ ok: false, suggestions: [] });
   });
 });

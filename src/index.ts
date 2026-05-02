@@ -86,7 +86,8 @@ export { parse } from "./parser.js";
 export { compile } from "./compiler.js";
 export { tokenize } from "./lexer.js";
 export { ALL_EXERCISES, isKnownExercise } from "./exercises.js";
-export { suggest, bestMatch, validate } from "./exercise-matcher.js";
+export { suggest, bestMatch, validateExercise } from "./exercise-matcher.js";
+export { validate } from "@gymbile/wpl-validator";
 export { validateVocabulary } from "./vocabulary-matcher.js";
 export type { ValidationResult, ValidationError } from "@gymbile/wpl-validator";
 export {

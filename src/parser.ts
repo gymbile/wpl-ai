@@ -76,7 +76,7 @@ import {
   unknownExerciseRef,
 } from "./errors.js";
 
-import { validate } from "./exercise-matcher.js";
+import { validateExercise } from "./exercise-matcher.js";
 import type { Token, TokenType } from "./lexer.js";
 import {
   GRAMMAR,
@@ -1940,7 +1940,7 @@ function parseExerciseOrSimpleActivity(state: ParseState): Activity {
 }
 
 function validateExerciseRef(state: ParseState, ref: string): void {
-  const result = validate(ref);
+  const result = validateExercise(ref);
   if (!result.ok) {
     addError(
       state,
