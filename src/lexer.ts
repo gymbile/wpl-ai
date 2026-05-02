@@ -195,7 +195,7 @@ function incrementLine(state: LexerState): void {
 }
 
 function loc(state: LexerState): Location {
-  return { line: state.line, column: state.column };
+  return { line: state.line, column: state.column, offset: state.pos };
 }
 
 function emitToken(state: LexerState, type: TokenType, value: any): void {

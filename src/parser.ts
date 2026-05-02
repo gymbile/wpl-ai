@@ -130,6 +130,46 @@ function currentLocation(state: ParseState): Location {
   return currentToken(state).location;
 }
 
+// ---------------------------------------------------------------------------
+// Source-range tracking helpers
+// ---------------------------------------------------------------------------
+
+import type { SourceRange } from "./types.js";
+
+/** Get the character offset of the current token (start of next consumed token). */
+function currentOffset(state: ParseState): number {
+  return currentToken(state).location.offset ?? 0;
+}
+
+/**
+ * Compute the end offset of the most recently consumed token.
+ *
+ * This is approximate: we use the start offset of the *current* token
+ * (which is the next-to-consume token). For most well-formed AST nodes
+ * the difference is acceptable for source-range mapping in editor UIs.
+ */
+function endOffset(state: ParseState): number {
+  // Walk backwards over newline/indent/dedent tokens to find the last meaningful
+  // content token, then return its start + a reasonable length estimate.
+  // Simpler approximation: the start offset of the current token.
+  const cur = currentToken(state);
+  if (cur.type === "eof") {
+    // Use the last non-EOF token's offset + an estimate.
+    for (let i = state.pos - 1; i >= 0; i--) {
+      const t = state.tokens[i];
+      if (t.location.offset !== undefined) {
+        return t.location.offset + (t.location.length ?? 1);
+      }
+    }
+  }
+  return cur.location.offset ?? 0;
+}
+
+/** Build a SourceRange from a captured start offset to current position. */
+function makeRange(state: ParseState, fromOffset: number): SourceRange {
+  return { from: fromOffset, to: endOffset(state) };
+}
+
 function advance(state: ParseState): void {
   state.pos++;
 }
@@ -183,6 +223,7 @@ export function parse(
 function parseDocument(state: ParseState): Document | null {
   skipNewlines(state);
 
+  const fromOffset = currentOffset(state);
   const header = parseHeader(state);
   if (header === null) return null;
 
@@ -199,6 +240,7 @@ function parseDocument(state: ParseState): Document | null {
     progress: sections.progress ?? null,
     notifications: sections.notifications ?? null,
     rendering: sections.rendering ?? null,
+    range: makeRange(state, fromOffset),
   };
 }
 
@@ -455,6 +497,7 @@ function parseGoals(state: ParseState): Goal[] {
 }
 
 function parseGoal(state: ParseState): Goal {
+  const fromOffset = currentOffset(state);
   advance(state); // skip GOAL
 
   const priority = expectBareWord(state);
@@ -477,6 +520,7 @@ function parseGoal(state: ParseState): Goal {
     target: (goalAttrs.target as Target) ?? null,
     deadline: (goalAttrs.deadline as string) ?? null,
     milestones: (goalAttrs.milestones as Milestone[]) ?? null,
+    range: makeRange(state, fromOffset),
   };
 }
 
@@ -620,6 +664,7 @@ function parsePriority(value: string): GoalPriority {
 // ---------------------------------------------------------------------------
 
 function parseRequiresSection(state: ParseState): Requirements {
+  const fromOffset = currentOffset(state);
   advance(state); // skip REQUIRES
   skipNewlines(state);
 
@@ -634,6 +679,7 @@ function parseRequiresSection(state: ParseState): Requirements {
       contraindications:
         (attrs.contraindications as Contraindication[]) ?? null,
       time_commitment: (attrs.time_commitment as TimeCommitment) ?? null,
+      range: makeRange(state, fromOffset),
     };
   }
 
@@ -643,6 +689,7 @@ function parseRequiresSection(state: ParseState): Requirements {
     equipment: null,
     contraindications: null,
     time_commitment: null,
+    range: makeRange(state, fromOffset),
   };
 }
 
@@ -878,6 +925,7 @@ function parseTimeCommitment(state: ParseState): TimeCommitment {
 // ---------------------------------------------------------------------------
 
 function parsePersonalizationSection(state: ParseState): Personalization {
+  const fromOffset = currentOffset(state);
   advance(state); // skip PERSONALIZATION
   skipNewlines(state);
 
@@ -887,10 +935,11 @@ function parsePersonalizationSection(state: ParseState): Personalization {
     return {
       inputs: inputs.length === 0 ? null : inputs,
       rules,
+      range: makeRange(state, fromOffset),
     };
   }
 
-  return { inputs: null, rules: [] };
+  return { inputs: null, rules: [], range: makeRange(state, fromOffset) };
 }
 
 function parsePersonalizationBody(state: ParseState): {
@@ -942,6 +991,7 @@ function parseInputs(state: ParseState): Input[] {
     const tok = currentToken(state);
 
     if (tok.type === "bare_word") {
+      const fromOffset = currentOffset(state);
       const name = tok.value as string;
       advance(state);
       expectEq(state);
@@ -961,6 +1011,7 @@ function parseInputs(state: ParseState): Input[] {
         type: inputType,
         options: options ?? null,
         label: label ?? null,
+        range: makeRange(state, fromOffset),
       });
     } else if (tok.type === "dedent") {
       advance(state);
@@ -1032,6 +1083,7 @@ function parseRules(state: ParseState): Rule[] {
 }
 
 function parseRule(state: ParseState): Rule {
+  const fromOffset = currentOffset(state);
   advance(state); // skip WHEN
   const condition = parseCondition(state);
   expectColon(state);
@@ -1039,7 +1091,7 @@ function parseRule(state: ParseState): Rule {
   expectIndent(state);
   const actions = parseActions(state);
 
-  return { condition, actions };
+  return { condition, actions, range: makeRange(state, fromOffset) };
 }
 
 // ---------------------------------------------------------------------------
@@ -1473,6 +1525,7 @@ function parsePhases(state: ParseState): Phase[] {
 }
 
 function parsePhase(state: ParseState): Phase {
+  const fromOffset = currentOffset(state);
   advance(state); // skip PHASE
   const name = expectString(state);
   expectLparen(state);
@@ -1493,6 +1546,7 @@ function parsePhase(state: ParseState): Phase {
     goals: (attrs.goals as string[]) ?? null,
     description: (attrs.description as string) ?? null,
     weeks,
+    range: makeRange(state, fromOffset),
   };
 }
 
@@ -1537,6 +1591,7 @@ function parsePhaseBody(state: ParseState): {
 }
 
 function parseWeek(state: ParseState): Week {
+  const fromOffset = currentOffset(state);
   advance(state); // skip WEEK
   const number = expectNumber(state);
 
@@ -1559,6 +1614,7 @@ function parseWeek(state: ParseState): Week {
     number: Math.trunc(number),
     name,
     days,
+    range: makeRange(state, fromOffset),
   };
 }
 
@@ -1583,6 +1639,7 @@ function parseDays(state: ParseState): Day[] {
 }
 
 function parseDay(state: ParseState): Day {
+  const fromOffset = currentOffset(state);
   advance(state); // skip DAY
 
   const dayName = parseDayName(state);
@@ -1617,6 +1674,7 @@ function parseDay(state: ParseState): Day {
     schedule: (attrs.schedule as [SchedulePref, ScheduleFlex]) ?? null,
     blocks,
     notes: (attrs.notes as string) ?? null,
+    range: makeRange(state, fromOffset),
   };
 }
 
@@ -1699,6 +1757,7 @@ function parseScheduleFlex(value: string): ScheduleFlex {
 // ---------------------------------------------------------------------------
 
 function parseBlock(state: ParseState): Block {
+  const fromOffset = currentOffset(state);
   const blockTypeStr = expectBareWord(state);
 
   const blockType: BlockType = BLOCK_TYPE_SET.has(blockTypeStr)
@@ -1731,6 +1790,7 @@ function parseBlock(state: ParseState): Block {
     rounds: (attrs.rounds as number) ?? null,
     rest_between_rounds: (attrs.rest_between_rounds as Duration) ?? null,
     activities,
+    range: makeRange(state, fromOffset),
   };
 }
 
@@ -1800,6 +1860,7 @@ function parseBlockBody(
 // ---------------------------------------------------------------------------
 
 function parseExerciseOrSimpleActivity(state: ParseState): Activity {
+  const fromOffset = currentOffset(state);
   const name = expectBareWord(state);
   const tok = currentToken(state);
 
@@ -1832,6 +1893,7 @@ function parseExerciseOrSimpleActivity(state: ParseState): Activity {
         tempo: (modifiers.tempo as string) ?? null,
         rest: (modifiers.rest as Duration) ?? null,
         weight: (modifiers.weight as Weight) ?? null,
+        range: makeRange(state, fromOffset),
       };
     }
 
@@ -1849,6 +1911,7 @@ function parseExerciseOrSimpleActivity(state: ParseState): Activity {
           unit: parseTimeUnit(next.value as string),
         },
         params: null,
+        range: makeRange(state, fromOffset),
       };
     }
 
@@ -1858,6 +1921,7 @@ function parseExerciseOrSimpleActivity(state: ParseState): Activity {
       name,
       duration: { value: setsOrDuration, unit: "minutes" },
       params: null,
+      range: makeRange(state, fromOffset),
     };
   }
 
@@ -1869,6 +1933,7 @@ function parseExerciseOrSimpleActivity(state: ParseState): Activity {
     name,
     duration,
     params: null,
+    range: makeRange(state, fromOffset),
   };
 }
 
@@ -2037,6 +2102,7 @@ function parseOptionalInlineDuration(
 // ---------------------------------------------------------------------------
 
 function parseCardioActivity(state: ParseState): Cardio {
+  const fromOffset = currentOffset(state);
   advance(state); // skip "cardio"
   const modality = expectBareWord(state);
   const cardioTypeStr = expectBareWord(state);
@@ -2064,6 +2130,7 @@ function parseCardioActivity(state: ParseState): Cardio {
     zone: (attrs.zone as number) ?? null,
     intensity: (attrs.intensity as Intensity) ?? null,
     intervals: (attrs.intervals as IntervalPattern) ?? null,
+    range: makeRange(state, fromOffset),
   };
 }
 
@@ -2196,6 +2263,7 @@ function parseIntervalPattern(state: ParseState): IntervalPattern {
 // ---------------------------------------------------------------------------
 
 function parseNutritionActivity(state: ParseState): Nutrition {
+  const fromOffset = currentOffset(state);
   advance(state); // skip "nutrition"
   const category = expectBareWord(state);
   expectColon(state);
@@ -2214,6 +2282,7 @@ function parseNutritionActivity(state: ParseState): Nutrition {
     macros: (attrs.macros as Macros) ?? null,
     calories: (attrs.calories as [number, number]) ?? null,
     suggestions: (attrs.suggestions as string[]) ?? null,
+    range: makeRange(state, fromOffset),
   };
 }
 
@@ -2390,6 +2459,7 @@ function parseSuggestionList(state: ParseState): string[] {
 // ---------------------------------------------------------------------------
 
 function parseMeditationActivity(state: ParseState): Meditation {
+  const fromOffset = currentOffset(state);
   advance(state); // skip "meditation"
   const category = expectBareWord(state);
   expectColon(state);
@@ -2407,6 +2477,7 @@ function parseMeditationActivity(state: ParseState): Meditation {
     duration: (attrs.duration as Duration) ?? { value: 0, unit: "minutes" },
     guided: (attrs.guided as boolean) ?? null,
     audio_id: (attrs.audio_id as string) ?? null,
+    range: makeRange(state, fromOffset),
   };
 }
 
@@ -2454,6 +2525,7 @@ function parseMeditationBody(
 // ---------------------------------------------------------------------------
 
 function parseRecoveryActivity(state: ParseState): Recovery {
+  const fromOffset = currentOffset(state);
   advance(state); // skip "recovery"
   const category = expectBareWord(state);
   expectColon(state);
@@ -2470,6 +2542,7 @@ function parseRecoveryActivity(state: ParseState): Recovery {
     category,
     duration: (attrs.duration as Duration) ?? { value: 0, unit: "minutes" },
     exercises: exercises.length === 0 ? null : exercises,
+    range: makeRange(state, fromOffset),
   };
 }
 
@@ -2551,12 +2624,14 @@ function parseRecoveryExercise(state: ParseState): RecoveryExercise {
 
 /** Wraps a recovery exercise as a Recovery Activity for cooldown blocks */
 function parseRecoveryExerciseAsActivity(state: ParseState): Recovery {
+  const fromOffset = currentOffset(state);
   const exercise = parseRecoveryExercise(state);
   return {
     kind: "recovery",
     category: "cooldown",
     duration: { value: 0, unit: "minutes" },
     exercises: [exercise],
+    range: makeRange(state, fromOffset),
   };
 }
 
@@ -2565,6 +2640,7 @@ function parseRecoveryExerciseAsActivity(state: ParseState): Recovery {
 // ---------------------------------------------------------------------------
 
 function parseHabitActivity(state: ParseState): Habit {
+  const fromOffset = currentOffset(state);
   advance(state); // skip "habit"
   const category = expectBareWord(state);
   expectColon(state);
@@ -2583,6 +2659,7 @@ function parseHabitActivity(state: ParseState): Habit {
     target_unit: (attrs.target_unit as string) ?? "",
     frequency: (attrs.frequency as string) ?? null,
     reminders: (attrs.reminders as string[]) ?? null,
+    range: makeRange(state, fromOffset),
   };
 }
 
@@ -2649,6 +2726,7 @@ function parseTimeList(state: ParseState): string[] {
 // ---------------------------------------------------------------------------
 
 function parseProgressSection(state: ParseState): Progress {
+  const fromOffset = currentOffset(state);
   advance(state); // skip PROGRESS
   skipNewlines(state);
 
@@ -2661,6 +2739,7 @@ function parseProgressSection(state: ParseState): Progress {
       points: (attrs.points as PointsConfig) ?? null,
       achievements: (attrs.achievements as Achievement[]) ?? null,
       streaks: (attrs.streaks as StreaksConfig) ?? null,
+      range: makeRange(state, fromOffset),
     };
   }
 
@@ -2669,6 +2748,7 @@ function parseProgressSection(state: ParseState): Progress {
     points: null,
     achievements: null,
     streaks: null,
+    range: makeRange(state, fromOffset),
   };
 }
 
@@ -2748,6 +2828,7 @@ function parseCheckpoints(state: ParseState): Checkpoint[] {
 }
 
 function parseCheckpoint(state: ParseState): Checkpoint {
+  const fromOffset = currentOffset(state);
   advance(state); // skip "checkpoint"
   const name = expectString(state);
   expectColon(state);
@@ -2760,6 +2841,7 @@ function parseCheckpoint(state: ParseState): Checkpoint {
     trigger: (attrs.trigger as CheckpointTrigger) ?? { type: "manual" },
     measurements: (attrs.measurements as string[]) ?? null,
     questions: (attrs.questions as string[]) ?? null,
+    range: makeRange(state, fromOffset),
   };
 }
 
@@ -2908,10 +2990,15 @@ function parsePointsRulesList(state: ParseState): PointsRule[] {
     const tok = currentToken(state);
 
     if (tok.type === "minus") {
+      const fromOffset = currentOffset(state);
       advance(state);
       const name = expectBareWord(state);
       const points = expectNumber(state);
-      rules.push({ activity: name, points: Math.trunc(points) });
+      rules.push({
+        activity: name,
+        points: Math.trunc(points),
+        range: makeRange(state, fromOffset),
+      });
     } else if (tok.type === "dedent") {
       advance(state);
       break;

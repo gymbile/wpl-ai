@@ -780,7 +780,9 @@ describe("Error cases", () => {
 describe("Edge cases", () => {
   it("empty source produces just EOF", () => {
     const tokens = tokensOf("");
-    expect(tokens).toEqual([{ type: "eof", value: null, location: { line: 1, column: 1 } }]);
+    expect(tokens).toEqual([
+      { type: "eof", value: null, location: expect.objectContaining({ line: 1, column: 1 }) },
+    ]);
   });
 
   it("source with only whitespace lines produces just EOF", () => {
@@ -869,7 +871,7 @@ describe("Edge cases", () => {
 describe("Token locations", () => {
   it("first token starts at line 1, column 1", () => {
     const tokens = tokensOf("PLAN");
-    expect(tokens[0].location).toEqual({ line: 1, column: 1 });
+    expect(tokens[0].location).toMatchObject({ line: 1, column: 1 });
   });
 
   it("tokens on second line have line 2", () => {
@@ -883,14 +885,14 @@ describe("Token locations", () => {
     const tokens = tokensOf("PLAN TYPE");
     const typeTok = tokens.find((t) => t.value === "TYPE");
     expect(typeTok).toBeDefined();
-    expect(typeTok!.location).toEqual({ line: 1, column: 6 });
+    expect(typeTok!.location).toMatchObject({ line: 1, column: 6 });
   });
 
   it("string location points to opening quote", () => {
     const tokens = tokensOf('PLAN "Test"');
     const str = tokens.find((t) => t.type === "string");
     expect(str).toBeDefined();
-    expect(str!.location).toEqual({ line: 1, column: 6 });
+    expect(str!.location).toMatchObject({ line: 1, column: 6 });
   });
 
   it("multi-line locations track correctly", () => {
@@ -898,13 +900,13 @@ describe("Token locations", () => {
     const tokens = tokensOf(source);
 
     const plan = tokens.find((t) => t.value === "PLAN");
-    expect(plan!.location).toEqual({ line: 1, column: 1 });
+    expect(plan!.location).toMatchObject({ line: 1, column: 1 });
 
     const type = tokens.find((t) => t.value === "TYPE");
-    expect(type!.location).toEqual({ line: 2, column: 1 });
+    expect(type!.location).toMatchObject({ line: 2, column: 1 });
 
     const vis = tokens.find((t) => t.value === "VISIBILITY");
-    expect(vis!.location).toEqual({ line: 3, column: 1 });
+    expect(vis!.location).toMatchObject({ line: 3, column: 1 });
   });
 
   it("indented token location reflects column after indent", () => {
@@ -913,28 +915,28 @@ describe("Token locations", () => {
     const phase = tokens.find((t) => t.value === "PHASE");
     expect(phase).toBeDefined();
     // After counting 2 spaces, column is 3 (1-based)
-    expect(phase!.location).toEqual({ line: 2, column: 3 });
+    expect(phase!.location).toMatchObject({ line: 2, column: 3 });
   });
 
   it("number location is correct", () => {
     const tokens = tokensOf("abc 42");
     const num = tokens.find((t) => t.type === "number");
     expect(num).toBeDefined();
-    expect(num!.location).toEqual({ line: 1, column: 5 });
+    expect(num!.location).toMatchObject({ line: 1, column: 5 });
   });
 
   it("operator locations are correct", () => {
     const tokens = tokensOf("a -> b");
     const arrow = tokens.find((t) => t.type === "arrow");
     expect(arrow).toBeDefined();
-    expect(arrow!.location).toEqual({ line: 1, column: 3 });
+    expect(arrow!.location).toMatchObject({ line: 1, column: 3 });
   });
 
   it("EOF location at end of last content", () => {
     const tokens = tokensOf("AB");
     const eof = tokens.find((t) => t.type === "eof");
     expect(eof).toBeDefined();
-    expect(eof!.location).toEqual({ line: 1, column: 3 });
+    expect(eof!.location).toMatchObject({ line: 1, column: 3 });
   });
 });
 

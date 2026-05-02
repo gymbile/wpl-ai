@@ -43,9 +43,11 @@ import type {
   PointsRule,
   Notification,
   RepsSpec,
+  PointerSourceMap,
 } from "./types.js";
 
 import type { CompileError } from "./errors.js";
+import { CompileContext } from "./compile-context.js";
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -53,15 +55,19 @@ import type { CompileError } from "./errors.js";
 
 export function compile(
   doc: Document,
-): { ok: true; json: Record<string, unknown> } | { ok: false; errors: CompileError[] } {
+):
+  | { ok: true; json: Record<string, unknown>; pointerMap: PointerSourceMap }
+  | { ok: false; errors: CompileError[] } {
   try {
-    const plan = compileDocument(doc);
+    const ctx = new CompileContext();
     const json: Record<string, unknown> = {
       $schema: "https://wpl.dev/schemas/wpl/v1.schema.json",
       version: "1.0.0",
-      plan,
     };
-    return { ok: true, json };
+    ctx.withSegment("plan", doc, () => {
+      json.plan = compileDocument(doc, ctx);
+    });
+    return { ok: true, json, pointerMap: ctx.pointerMap };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return {
@@ -108,18 +114,30 @@ function generateShortId(prefix: string): string {
 // Document
 // ---------------------------------------------------------------------------
 
-function compileDocument(doc: Document): Record<string, unknown> {
+function compileDocument(doc: Document, ctx: CompileContext): Record<string, unknown> {
   const plan: Record<string, unknown> = {
     id: crypto.randomUUID(),
     name: doc.header.name,
     type: doc.header.type,
     visibility: doc.header.visibility ?? "private",
     metadata: compileMetadata(doc.header),
-    goals: compileGoals(doc.goals ?? []),
-    requirements: compileRequirements(doc.requirements),
-    personalization: compilePersonalization(doc.personalization),
-    phases: compilePhases(doc.phases ?? []),
-    progress: compileProgress(doc.progress),
+    goals: ctx.withSegment("goals", undefined, () =>
+      compileGoals(doc.goals ?? [], ctx),
+    ),
+    requirements: ctx.withSegment("requirements", doc.requirements ?? undefined, () =>
+      compileRequirements(doc.requirements),
+    ),
+    personalization: ctx.withSegment(
+      "personalization",
+      doc.personalization ?? undefined,
+      () => compilePersonalization(doc.personalization, ctx),
+    ),
+    phases: ctx.withSegment("phases", undefined, () =>
+      compilePhases(doc.phases ?? [], ctx),
+    ),
+    progress: ctx.withSegment("progress", doc.progress ?? undefined, () =>
+      compileProgress(doc.progress, ctx),
+    ),
     notifications: compileNotifications(doc.notifications),
   };
 
@@ -160,8 +178,10 @@ function compileMetadata(header: Header): Record<string, unknown> {
 // Goals
 // ---------------------------------------------------------------------------
 
-function compileGoals(goals: Goal[]): Record<string, unknown>[] {
-  return goals.map((goal, i) => compileGoal(goal, i + 1));
+function compileGoals(goals: Goal[], ctx: CompileContext): Record<string, unknown>[] {
+  return goals.map((goal, i) =>
+    ctx.withSegment(i, goal, () => compileGoal(goal, i + 1)),
+  );
 }
 
 function compileGoal(goal: Goal, index: number): Record<string, unknown> {
@@ -295,17 +315,26 @@ function compileTimeCommitment(tc: TimeCommitment): Record<string, unknown> {
 // Personalization
 // ---------------------------------------------------------------------------
 
-function compilePersonalization(pers: Personalization | null): Record<string, unknown> {
+function compilePersonalization(
+  pers: Personalization | null,
+  ctx: CompileContext,
+): Record<string, unknown> {
   if (!pers) return { inputs: [], rules: [] };
 
   return {
-    inputs: compileInputs(pers.inputs ?? []),
-    rules: compileRules(pers.rules ?? []),
+    inputs: ctx.withSegment("inputs", undefined, () =>
+      compileInputs(pers.inputs ?? [], ctx),
+    ),
+    rules: ctx.withSegment("rules", undefined, () =>
+      compileRules(pers.rules ?? [], ctx),
+    ),
   };
 }
 
-function compileInputs(inputs: Input[]): Record<string, unknown>[] {
-  return inputs.map((input, i) => compileInput(input, i + 1));
+function compileInputs(inputs: Input[], ctx: CompileContext): Record<string, unknown>[] {
+  return inputs.map((input, i) =>
+    ctx.withSegment(i, input, () => compileInput(input, i + 1)),
+  );
 }
 
 function compileInput(input: Input, index: number): Record<string, unknown> {
@@ -325,8 +354,10 @@ function compileInput(input: Input, index: number): Record<string, unknown> {
   return compiled;
 }
 
-function compileRules(rules: Rule[]): Record<string, unknown>[] {
-  return rules.map((rule, i) => compileRule(rule, i + 1));
+function compileRules(rules: Rule[], ctx: CompileContext): Record<string, unknown>[] {
+  return rules.map((rule, i) =>
+    ctx.withSegment(i, rule, () => compileRule(rule, i + 1)),
+  );
 }
 
 function compileRule(rule: Rule, index: number): Record<string, unknown> {
@@ -372,11 +403,20 @@ function compileAction(action: Action): Record<string, unknown> {
 // Phases
 // ---------------------------------------------------------------------------
 
-function compilePhases(phases: Phase[]): Record<string, unknown>[] {
-  return phases.map((phase, i) => compilePhase(phase, i + 1));
+function compilePhases(
+  phases: Phase[],
+  ctx: CompileContext,
+): Record<string, unknown>[] {
+  return phases.map((phase, i) =>
+    ctx.withSegment(i, phase, () => compilePhase(phase, i + 1, ctx)),
+  );
 }
 
-function compilePhase(phase: Phase, index: number): Record<string, unknown> {
+function compilePhase(
+  phase: Phase,
+  index: number,
+  ctx: CompileContext,
+): Record<string, unknown> {
   const compiled: Record<string, unknown> = {
     id: `phase_${index}`,
     name: phase.name,
@@ -390,7 +430,9 @@ function compilePhase(phase: Phase, index: number): Record<string, unknown> {
     compiled.duration = compileDuration(phase.duration);
   }
   if (phase.weeks && phase.weeks.length > 0) {
-    compiled.weeks = compileWeeks(phase.weeks);
+    compiled.weeks = ctx.withSegment("weeks", undefined, () =>
+      compileWeeks(phase.weeks, ctx),
+    );
   }
 
   return compiled;
@@ -400,11 +442,13 @@ function compilePhase(phase: Phase, index: number): Record<string, unknown> {
 // Weeks
 // ---------------------------------------------------------------------------
 
-function compileWeeks(weeks: Week[]): Record<string, unknown>[] {
-  return weeks.map(compileWeek);
+function compileWeeks(weeks: Week[], ctx: CompileContext): Record<string, unknown>[] {
+  return weeks.map((week, i) =>
+    ctx.withSegment(i, week, () => compileWeek(week, ctx)),
+  );
 }
 
-function compileWeek(week: Week): Record<string, unknown> {
+function compileWeek(week: Week, ctx: CompileContext): Record<string, unknown> {
   const compiled: Record<string, unknown> = {
     id: `week_${week.number}`,
     name: week.name ?? `Week ${week.number}`,
@@ -412,7 +456,9 @@ function compileWeek(week: Week): Record<string, unknown> {
   };
 
   if (week.days && week.days.length > 0) {
-    compiled.days = compileDays(week.days);
+    compiled.days = ctx.withSegment("days", undefined, () =>
+      compileDays(week.days, ctx),
+    );
   }
 
   return compiled;
@@ -422,11 +468,17 @@ function compileWeek(week: Week): Record<string, unknown> {
 // Days
 // ---------------------------------------------------------------------------
 
-function compileDays(days: Day[]): Record<string, unknown>[] {
-  return days.map((day, i) => compileDay(day, i + 1));
+function compileDays(days: Day[], ctx: CompileContext): Record<string, unknown>[] {
+  return days.map((day, i) =>
+    ctx.withSegment(i, day, () => compileDay(day, i + 1, ctx)),
+  );
 }
 
-function compileDay(day: Day, index: number): Record<string, unknown> {
+function compileDay(
+  day: Day,
+  index: number,
+  ctx: CompileContext,
+): Record<string, unknown> {
   const compiled: Record<string, unknown> = {
     id: `day_${index}`,
     day_of_week: dayNameToNumber(day.day_name),
@@ -443,7 +495,9 @@ function compileDay(day: Day, index: number): Record<string, unknown> {
     }
   }
   if (day.blocks && day.blocks.length > 0) {
-    compiled.blocks = compileBlocks(day.blocks);
+    compiled.blocks = ctx.withSegment("blocks", undefined, () =>
+      compileBlocks(day.blocks, ctx),
+    );
   }
 
   return compiled;
@@ -453,11 +507,17 @@ function compileDay(day: Day, index: number): Record<string, unknown> {
 // Blocks
 // ---------------------------------------------------------------------------
 
-function compileBlocks(blocks: Block[]): Record<string, unknown>[] {
-  return blocks.map((block, i) => compileBlock(block, i + 1));
+function compileBlocks(blocks: Block[], ctx: CompileContext): Record<string, unknown>[] {
+  return blocks.map((block, i) =>
+    ctx.withSegment(i, block, () => compileBlock(block, i + 1, ctx)),
+  );
 }
 
-function compileBlock(block: Block, index: number): Record<string, unknown> {
+function compileBlock(
+  block: Block,
+  index: number,
+  ctx: CompileContext,
+): Record<string, unknown> {
   const compiled: Record<string, unknown> = {
     id: `${block.type}_block`,
     type: block.type,
@@ -474,7 +534,11 @@ function compileBlock(block: Block, index: number): Record<string, unknown> {
     compiled.rest_between_rounds = compileDuration(block.rest_between_rounds);
   }
   if (block.activities && block.activities.length > 0) {
-    compiled.activities = block.activities.map((act, i) => compileActivity(act, i + 1));
+    compiled.activities = ctx.withSegment("activities", undefined, () =>
+      block.activities.map((act, i) =>
+        ctx.withSegment(i, act, () => compileActivity(act, i + 1)),
+      ),
+    );
   }
 
   return compiled;
@@ -762,17 +826,27 @@ function compileSimpleActivity(simple: SimpleActivity, index: number): Record<st
 // Progress
 // ---------------------------------------------------------------------------
 
-function compileProgress(progress: Progress | null): Record<string, unknown> | null {
+function compileProgress(
+  progress: Progress | null,
+  ctx: CompileContext,
+): Record<string, unknown> | null {
   if (!progress) return null;
 
   const compiled: Record<string, unknown> = {};
 
   if (progress.checkpoints && progress.checkpoints.length > 0) {
-    compiled.checkpoints = progress.checkpoints.map(compileCheckpoint);
+    const checkpoints = progress.checkpoints;
+    compiled.checkpoints = ctx.withSegment("checkpoints", undefined, () =>
+      checkpoints.map((cp, i) =>
+        ctx.withSegment(i, cp, () => compileCheckpoint(cp)),
+      ),
+    );
   }
 
   if (progress.points) {
-    compiled.points = compilePointsConfig(progress.points);
+    compiled.points = ctx.withSegment("points", progress.points, () =>
+      compilePointsConfig(progress.points!, ctx),
+    );
   }
 
   return Object.keys(compiled).length === 0 ? null : compiled;
@@ -798,16 +872,24 @@ function compileCheckpoint(cp: Checkpoint): Record<string, unknown> {
   return compiled;
 }
 
-function compilePointsConfig(pc: PointsConfig): Record<string, unknown> {
+function compilePointsConfig(
+  pc: PointsConfig,
+  ctx: CompileContext,
+): Record<string, unknown> {
   const compiled: Record<string, unknown> = {
     enabled: pc.enabled ?? false,
   };
 
   if (pc.rules && pc.rules.length > 0) {
-    compiled.rules = pc.rules.map((rule: PointsRule) => ({
-      event: rule.activity,
-      points: rule.points,
-    }));
+    const rules = pc.rules;
+    compiled.rules = ctx.withSegment("rules", undefined, () =>
+      rules.map((rule: PointsRule, i: number) =>
+        ctx.withSegment(i, rule, () => ({
+          event: rule.activity,
+          points: rule.points,
+        })),
+      ),
+    );
   }
 
   return compiled;

@@ -6,6 +6,8 @@ export interface Location {
   line: number;
   column: number;
   length?: number;
+  /** Character offset into the original source (added for source-range tracking). */
+  offset?: number;
 }
 
 // ---------------------------------------------------------------------------

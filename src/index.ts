@@ -7,7 +7,7 @@ import { parse } from "./parser.js";
 import { compile } from "./compiler.js";
 import { validateSemantics, type SemanticWarning } from "./validator.js";
 import { validateSchema, type SchemaValidationError } from "./schema-validator.js";
-import type { Document } from "./types.js";
+import type { Document, PointerSourceMap } from "./types.js";
 import type { WplError } from "./errors.js";
 import { formatErrors, errorSummary } from "./errors.js";
 
@@ -16,7 +16,14 @@ import { formatErrors, errorSummary } from "./errors.js";
 // ---------------------------------------------------------------------------
 
 export type CompileResult =
-  | { ok: true; json: Record<string, unknown>; ast: Document; warnings: SemanticWarning[]; schemaErrors: SchemaValidationError[] }
+  | {
+      ok: true;
+      json: Record<string, unknown>;
+      ast: Document;
+      warnings: SemanticWarning[];
+      schemaErrors: SchemaValidationError[];
+      pointerMap: PointerSourceMap;
+    }
   | { ok: false; errors: WplError[]; formatted: string; summary: string };
 
 // ---------------------------------------------------------------------------
@@ -63,6 +70,7 @@ export function compileWplAi(source: string): CompileResult {
     ast: parseResult.document,
     warnings,
     schemaErrors: schemaResult.errors,
+    pointerMap: compileResult.pointerMap,
   };
 }
 
@@ -70,7 +78,7 @@ export function compileWplAi(source: string): CompileResult {
 // Re-exports
 // ---------------------------------------------------------------------------
 
-export type { Document } from "./types.js";
+export type { Document, SourceRange, PointerSourceMap } from "./types.js";
 export type { WplError, LexerError, ParseError, CompileError } from "./errors.js";
 export type { SemanticWarning } from "./validator.js";
 export { formatErrors, formatError, errorSummary } from "./errors.js";
