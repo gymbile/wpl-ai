@@ -301,7 +301,7 @@ function findInSource(
   keyword: string,
 ): { line: number; column: number; length: number } {
   for (let i = 0; i < lines.length; i++) {
-    const col = lines[i].indexOf(keyword);
+    const col = lines[i]!.indexOf(keyword);
     if (col !== -1) {
       return { line: i + 1, column: col + 1, length: keyword.length };
     }

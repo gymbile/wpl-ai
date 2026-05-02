@@ -175,7 +175,7 @@ interface LexerState {
 function peek(state: LexerState, offset = 0): string | null {
   const target = state.pos + offset;
   if (target < state.source.length) {
-    return state.source[target];
+    return state.source[target] ?? null;
   }
   return null;
 }
@@ -279,7 +279,7 @@ function skipBlankLinesAndComments(state: LexerState): void {
       const rest = state.source.substring(state.pos);
       const match = rest.match(/^([ ]*)#/);
       if (match) {
-        advanceBy(state, match[1].length);
+        advanceBy(state, match[1]!.length);
         skipComment(state);
         continue;
       }
@@ -331,7 +331,7 @@ function countLeadingSpaces(state: LexerState): number {
 }
 
 function handleIndent(state: LexerState, spaces: number): void {
-  const currentIndent = state.indentStack[state.indentStack.length - 1];
+  const currentIndent = state.indentStack[state.indentStack.length - 1] ?? 0;
   const diff = spaces - currentIndent;
 
   if (state.indentUnit === null) {
@@ -366,7 +366,7 @@ function handleDedent(state: LexerState, targetSpaces: number): void {
       return;
     }
 
-    const below = state.indentStack[state.indentStack.length - 2];
+    const below = state.indentStack[state.indentStack.length - 2] ?? 0;
 
     if (below >= targetSpaces) {
       emitToken(state, "dedent", below);
@@ -383,7 +383,7 @@ function handleDedent(state: LexerState, targetSpaces: number): void {
 
 function handleIndentation(state: LexerState): void {
   const spaces = countLeadingSpaces(state);
-  const currentIndent = state.indentStack[state.indentStack.length - 1];
+  const currentIndent = state.indentStack[state.indentStack.length - 1] ?? 0;
 
   if (spaces > currentIndent) {
     handleIndent(state, spaces);
@@ -573,6 +573,7 @@ function tokenizeNumber(state: LexerState): void {
 
 function isValidDate(text: string): boolean {
   const [yearStr, monthStr, dayStr] = text.split("-");
+  if (yearStr === undefined || monthStr === undefined || dayStr === undefined) return false;
   const year = parseInt(yearStr, 10);
   const month = parseInt(monthStr, 10);
   const day = parseInt(dayStr, 10);
@@ -584,6 +585,7 @@ function isValidDate(text: string): boolean {
 
 function isValidTime(text: string): boolean {
   const [hourStr, minStr] = text.split(":");
+  if (hourStr === undefined || minStr === undefined) return false;
   const hour = parseInt(hourStr, 10);
   const min = parseInt(minStr, 10);
   return hour >= 0 && hour <= 23 && min >= 0 && min <= 59;
@@ -630,7 +632,7 @@ function tokenizeIdentifier(state: LexerState): void {
   let tokenType: TokenType;
   if (KEYWORDS.has(text)) {
     tokenType = "keyword";
-  } else if (text.length > 0 && text[0] >= "A" && text[0] <= "Z") {
+  } else if (text.length > 0 && text[0]! >= "A" && text[0]! <= "Z") {
     // Capitalized identifiers are treated as keywords
     tokenType = "keyword";
   } else {
@@ -871,7 +873,7 @@ function tokenizeLine(state: LexerState): void {
 function emitRemainingDedents(state: LexerState): void {
   while (state.indentStack.length > 1) {
     state.indentStack.pop();
-    const below = state.indentStack[state.indentStack.length - 1];
+    const below = state.indentStack[state.indentStack.length - 1] ?? 0;
     emitToken(state, "dedent", below);
   }
 }

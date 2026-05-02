@@ -121,7 +121,7 @@ const EOF_TOKEN: Token = {
 
 function currentToken(state: ParseState): Token {
   if (state.pos < state.tokens.length) {
-    return state.tokens[state.pos];
+    return state.tokens[state.pos]!;
   }
   return EOF_TOKEN;
 }
@@ -156,6 +156,7 @@ function endOffset(state: ParseState): number {
   if (cur.type === "eof") {
     for (let i = state.pos - 1; i >= 0; i--) {
       const t = state.tokens[i];
+      if (!t) continue;
       if (t.type === "newline" || t.type === "indent" || t.type === "dedent") {
         continue;
       }

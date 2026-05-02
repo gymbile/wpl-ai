@@ -358,7 +358,7 @@ export function durationMismatch(
 function getSourceLine(source: string, line: number): string | null {
   const lines = source.split("\n");
   if (line < 1 || line > lines.length) return null;
-  return lines[line - 1];
+  return lines[line - 1] ?? null;
 }
 
 function formatSourcePointer(source: string, location: Location): string {
@@ -437,7 +437,7 @@ export function formatError(error: WplError, source?: string): string {
 
 export function formatErrors(errors: WplError[], source?: string): string {
   if (errors.length === 0) return "No errors.";
-  if (errors.length === 1) return formatError(errors[0], source);
+  if (errors.length === 1) return formatError(errors[0]!, source);
 
   return errors
     .map((error, i) => `${i + 1}. ${formatError(error, source)}`)
