@@ -61,7 +61,7 @@ export type TokenType =
 
 export interface Token {
   type: TokenType;
-  value: any;
+  value: string | number | null;
   location: Location;
 }
 
@@ -199,11 +199,11 @@ function loc(state: LexerState): Location {
   return { line: state.line, column: state.column, offset: state.pos };
 }
 
-function emitToken(state: LexerState, type: TokenType, value: any): void {
+function emitToken(state: LexerState, type: TokenType, value: string | number | null): void {
   state.tokens.push({ type, value, location: loc(state) });
 }
 
-function emitTokenAt(state: LexerState, type: TokenType, value: any, location: Location): void {
+function emitTokenAt(state: LexerState, type: TokenType, value: string | number | null, location: Location): void {
   state.tokens.push({ type, value, location });
 }
 
