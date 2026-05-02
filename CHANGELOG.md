@@ -1,5 +1,10 @@
 # Changelog
 
+All notable changes to `@gymbile/wpl-ai`.
+
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
 ## [Unreleased]
 
 ## [1.1.1] — 2026-05-02
@@ -17,3 +22,8 @@
 
 ### Removed
 - In-package `src/schema-validator.ts` and `src/schemas/v1.schema.json`. wpl-ai now depends on `@gymbile/wpl-validator` for schema and semantic validation.
+
+## [1.0.0]
+
+### Added
+- Initial extraction from wpl.dev — full lexer/parser/compiler/DSL-semantic validator for the WPL-AI DSL. `compileWplAi(source)` produces canonical WPL JSON from whitespace-significant source text, with structured `WplError[]` for all four pipeline stages.
