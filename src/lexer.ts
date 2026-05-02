@@ -111,6 +111,7 @@ const KEYWORDS: Set<string> = new Set([
   "total", "zone", "intensity", "duration", "guided", "audio",
   // Nutrition
   "timing", "suggestions", "protein", "carbs", "fat", "calories",
+  "after_workout", "before_workout",
   // Habit
   "frequency", "reminders",
   // Block fields

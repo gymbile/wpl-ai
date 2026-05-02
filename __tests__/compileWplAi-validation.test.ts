@@ -20,6 +20,7 @@ describe("compileWplAi: validation against WPL schema", () => {
     "simple-upper-body",
     "hiit-circuit-personalization",
     "holistic-wellness-week",
+    "nutrition-with-timing",
   ]) {
     it(`compiles ${id} to schema-valid JSON`, () => {
       const fx = fixtureById(id);

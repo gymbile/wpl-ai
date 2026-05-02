@@ -153,4 +153,36 @@ PHASES
         cooldown:
           calf_stretch 30s x2 sides both`,
   },
+  {
+    id: "nutrition-with-timing",
+    name: "Nutrition With Timing",
+    description:
+      "A nutrition-focused plan exercising relative and absolute NutritionTiming emission.",
+    source: `\
+PLAN "Nutrition With Timing"
+TYPE nutrition
+VISIBILITY template
+DIFFICULTY beginner
+LANGUAGE en
+
+GOALS
+  GOAL primary nutrition:
+    name "Fuel Around Training"
+
+PHASES
+  PHASE "Week One" (1 weeks):
+    WEEK 1:
+      DAY Monday training 60m "Fuel Day":
+        nutrition:
+          nutrition pre_workout:
+            timing before_workout -30 minutes
+            protein 10..20
+          nutrition post_workout:
+            timing after_workout +45 minutes
+            protein 20..30
+            carbs 30..50
+          nutrition breakfast:
+            timing at 07:30
+            calories 400..600`,
+  },
 ];

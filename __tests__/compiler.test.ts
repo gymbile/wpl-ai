@@ -1166,6 +1166,41 @@ PHASES
     expect(macros.carbs).toBeDefined();
     expect(macros.fat).toBeDefined();
   });
+
+  it("emits schema-valid timing for after_workout", () => {
+    const activity = getNutritionActivity(
+      `nutrition post_workout:
+            timing after_workout +30 minutes`,
+    );
+    expect(activity.timing).toEqual({
+      type: "relative",
+      reference: "workout_end",
+      offset: { value: 30, unit: "minutes" },
+    });
+  });
+
+  it("emits schema-valid timing for before_workout", () => {
+    const activity = getNutritionActivity(
+      `nutrition pre_workout:
+            timing before_workout -45 minutes`,
+    );
+    expect(activity.timing).toEqual({
+      type: "relative",
+      reference: "workout_start",
+      offset: { value: 45, unit: "minutes" },
+    });
+  });
+
+  it("emits schema-valid timing for at_time", () => {
+    const activity = getNutritionActivity(
+      `nutrition breakfast:
+            timing at 07:30`,
+    );
+    expect(activity.timing).toEqual({
+      type: "absolute",
+      time: "07:30",
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------

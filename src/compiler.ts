@@ -1035,17 +1035,35 @@ function compileMacros(macros: Macros): Record<string, unknown> {
 }
 
 function compileTiming(timing: NutritionTiming): Record<string, unknown> {
+  // Map AST timing values to schema-valid NutritionTiming output.
+  // Schema enum: "relative" | "absolute".
+  //   AST "after_workout"  -> { type: "relative", reference: "workout_end",   offset? }
+  //   AST "before_workout" -> { type: "relative", reference: "workout_start", offset? }
+  //   AST "at_time"        -> { type: "absolute", time }
+  if (timing.type === "at_time") {
+    const compiled: Record<string, unknown> = { type: "absolute" };
+    if (timing.time) {
+      compiled.time = timing.time;
+    }
+    return compiled;
+  }
+
+  const reference =
+    timing.type === "before_workout" ? "workout_start" : "workout_end";
   const compiled: Record<string, unknown> = {
-    type: timing.type ?? "after_workout",
+    type: "relative",
+    reference,
   };
-
   if (timing.duration) {
-    compiled.offset = compileDuration(timing.duration);
+    // The reference ("workout_start" / "workout_end") already carries the
+    // direction. Normalize the offset magnitude to a positive duration so the
+    // emitted shape matches hand-authored examples in gymbile/wpl/examples.
+    const dur = timing.duration;
+    compiled.offset = compileDuration({
+      ...dur,
+      value: Math.abs(dur.value),
+    });
   }
-  if (timing.time) {
-    compiled.time = timing.time;
-  }
-
   return compiled;
 }
 
