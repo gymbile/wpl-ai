@@ -7,6 +7,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.1.2] — 2026-05-02
+
+### Fixed
+- The package's exported `validate` is now correctly re-exported from `@gymbile/wpl-validator`. Previously `validate` was the exercise-name fuzzy matcher (now `validateExercise`); the README documentation was inaccurate. Consumers following the README example with `validate(plan, { catalog })` now get the documented behavior.
+- `compile()` distinguishes internal compiler errors (with a new `internal_error` type) from DSL constraint violations, surfacing real bugs instead of mislabeling them.
+- DSL semantic validator no longer accepts muscle-group names (e.g. "biceps") as weight/distance units; it now emits an explicit warning when one appears in a unit position.
+
+### Changed
+- AST types are now re-exported from the package entry (`Phase`, `Week`, `Day`, `Block`, all `Activity` variants, `Goal`, `Personalization`, `Condition`, `Action`, etc.). Previously only `Document` was exposed; consumers had to deep-import.
+- `Token.value: any` tightened to `string | number | null`. Zero `any` in `src/`.
+- Renamed `Intensity.range` to `Intensity.bounds` to free `range` for source positions everywhere.
+- Tarball size reduced ~3× by no longer shipping sourcemaps.
+- Drop redundant `prepare` script (rely on `prepublishOnly`).
+- Add `sideEffects: false` for better tree-shaking.
+- TypeScript stricter: `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `noFallthroughCasesInSwitch` enabled. Surfaced and fixed 24 real array/string-indexed-access correctness sites across lexer/parser/validator/errors.
+
+### Docs
+- New CONTRIBUTING.md with dev setup, layout, "how to add a DSL keyword" recipe, release flow.
+- Backfilled `[1.0.0]` CHANGELOG entry; added Keep-a-Changelog header.
+- README test/fixture counts corrected; `CompileResult.formatted`/`summary` docs clarified (plain text, not ANSI).
+
+### CI
+- Test matrix expanded to Node 18, 20, 22.
+
 ## [1.1.1] — 2026-05-02
 
 ### Fixed
