@@ -318,7 +318,7 @@ export type IntensityType = "rpe" | "heart_rate_zone" | "bpm" | "pace";
 export interface Intensity {
   type: IntensityType;
   value: number | string | null;
-  range: [number, number] | null;
+  bounds: [number, number] | null;
 }
 
 export interface IntervalPattern {

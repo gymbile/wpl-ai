@@ -2190,12 +2190,12 @@ function parseIntensity(state: ParseState): Intensity | null {
     case "rpe": {
       advance(state);
       const value = expectNumber(state);
-      return { type: "rpe", value, range: null };
+      return { type: "rpe", value, bounds: null };
     }
     case "heart_rate_zone": {
       advance(state);
       const value = Math.trunc(expectNumber(state));
-      return { type: "heart_rate_zone", value, range: null };
+      return { type: "heart_rate_zone", value, bounds: null };
     }
     case "bpm": {
       advance(state);
@@ -2205,13 +2205,13 @@ function parseIntensity(state: ParseState): Intensity | null {
       return {
         type: "bpm",
         value: null,
-        range: [Math.trunc(min), Math.trunc(max)],
+        bounds: [Math.trunc(min), Math.trunc(max)],
       };
     }
     case "pace": {
       advance(state);
       const pace = expectString(state);
-      return { type: "pace", value: pace, range: null };
+      return { type: "pace", value: pace, bounds: null };
     }
     default:
       return null;
