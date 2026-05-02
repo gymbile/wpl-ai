@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.1.1] — 2026-05-02
+
 ### Fixed
 - `NutritionTiming` emission now matches the canonical schema. Previously emitted `{ type: "after_workout" | "before_workout" | "at_time" }` which the schema rejects. Now emits `{ type: "relative", reference: "<value>" }` for workout-relative timing and `{ type: "absolute", time: "<HH:MM>" }` for clock times.
 
