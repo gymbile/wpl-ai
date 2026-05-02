@@ -78,7 +78,7 @@ export function compileWplAi(source: string): CompileResult {
 // Re-exports
 // ---------------------------------------------------------------------------
 
-export type { Document, SourceRange, PointerSourceMap } from "./types.js";
+export type * from "./types.js";
 export type { WplError, LexerError, ParseError, CompileError } from "./errors.js";
 export type { SemanticWarning } from "./validator.js";
 export { formatErrors, formatError, errorSummary } from "./errors.js";
