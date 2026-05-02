@@ -150,15 +150,17 @@ function currentOffset(state: ParseState): number {
  */
 function endOffset(state: ParseState): number {
   // Walk backwards over newline/indent/dedent tokens to find the last meaningful
-  // content token, then return its start + a reasonable length estimate.
-  // Simpler approximation: the start offset of the current token.
+  // content token, then return its start. This is approximate but stays
+  // within source bounds.
   const cur = currentToken(state);
   if (cur.type === "eof") {
-    // Use the last non-EOF token's offset + an estimate.
     for (let i = state.pos - 1; i >= 0; i--) {
       const t = state.tokens[i];
+      if (t.type === "newline" || t.type === "indent" || t.type === "dedent") {
+        continue;
+      }
       if (t.location.offset !== undefined) {
-        return t.location.offset + (t.location.length ?? 1);
+        return t.location.offset;
       }
     }
   }
