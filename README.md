@@ -1,6 +1,7 @@
 # @gymbile/wpl-ai
 
-[![CI](https://github.com/gymbile/wpl-ai/actions/workflows/test.yml/badge.svg)](https://github.com/gymbile/wpl-ai/actions/workflows/test.yml)
+[![CI](https://github.com/gymbile/wpl-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/gymbile/wpl-ai/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache_2.0-blue.svg)](LICENSE)
 
 **Compiler for WPL-AI** — a human/LLM-friendly DSL that compiles to canonical [WPL](https://wpl.dev) (Wellness Plan Language) JSON.
 
@@ -429,9 +430,9 @@ Releases are tagged on the GitHub repo. Consumers using `github:gymbile/wpl-ai` 
 
 ## License
 
-UNLICENSED (see `package.json`). All rights reserved.
+[Apache-2.0](LICENSE). Patent grant included.
 
-"WPL" and "Wellness Plan Language" are trademarks of Gymbile.
+"WPL" and "Wellness Plan Language" are trademarks of Gymbile. The compiler is open under the license above; implementations may declare conformance ("WPL-compatible") but may not be named "WPL" or imply endorsement by Gymbile. Forks must rename. See the [schema repo's trademark policy](https://github.com/gymbile/wpl#trademark) for details.
 
 ---
 

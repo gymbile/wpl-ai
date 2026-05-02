@@ -36,7 +36,7 @@
     "type": "git",
     "url": "https://github.com/gymbile/wpl-ai.git"
   },
-  "license": "UNLICENSED",
+  "license": "Apache-2.0",
   "dependencies": {
     "@gymbile/wpl-validator": "^1.0.0",
     "ajv": "^8.18.0"
