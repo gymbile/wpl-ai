@@ -30,7 +30,24 @@
     "prepublishOnly": "npm run test && npm run build"
   },
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
+    "access": "public",
+    "provenance": true
+  },
+  "homepage": "https://wpl.dev",
+  "bugs": "https://github.com/gymbile/wpl-ai/issues",
+  "keywords": [
+    "wpl",
+    "wellness",
+    "fitness",
+    "dsl",
+    "compiler",
+    "ai",
+    "llm",
+    "parser",
+    "typescript"
+  ],
+  "engines": {
+    "node": ">=18"
   },
   "repository": {
     "type": "git",
