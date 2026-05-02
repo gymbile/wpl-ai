@@ -112,10 +112,12 @@ type CompileResult =
   | {
       ok: false;
       errors: WplError[];                   // Lex/parse/compile errors with source positions
-      formatted: string;                    // Human-readable error report
-      summary: string;                      // One-line summary
+      formatted: string;                    // Human-readable error report (plain text, not ANSI-colored)
+      summary: string;                      // One-line summary, e.g. "3 errors: 2 lex_unexpected_char, 1 parse_unexpected_token"
     };
 ```
+
+`formatted` is plain text — no ANSI escape codes — so it is safe to render in browser editors as-is. If you want colorized terminal output, wrap the per-error pieces yourself. `summary` is a single line counting errors by type, suitable for status bars or log lines.
 
 **Success vs. failure semantics:**
 - `ok: false` means the source was malformed — couldn't lex, parse, or compile to JSON. No JSON output exists.
@@ -302,11 +304,12 @@ PHASES
           frequency daily
 ```
 
-Three full reference fixtures live in [`__tests__/fixtures.ts`](__tests__/fixtures.ts):
+Four full reference fixtures live in [`__tests__/fixtures.ts`](__tests__/fixtures.ts):
 
 - `simple-upper-body` — beginner workout
 - `hiit-circuit-personalization` — intermediate HIIT with personalization rules
 - `holistic-wellness-week` — full hybrid plan exercising every activity type
+- `nutrition-with-timing` — nutrition plan exercising meal-timing emission
 
 These same fixtures are used as integration tests asserting that the compiled JSON validates cleanly against the canonical schema.
 
@@ -396,7 +399,7 @@ Test layout:
 | `__tests__/lexer.test.ts` | 292 tests — every token type, edge cases, error positions |
 | `__tests__/parser.test.ts` | 140 tests — every grammar production |
 | `__tests__/grammar.test.ts` | Grammar table consistency |
-| `__tests__/compiler.test.ts` | 168 tests — compiler emission shapes |
+| `__tests__/compiler.test.ts` | 172 tests — compiler emission shapes |
 | `__tests__/compile-context.test.ts` | Pointer-tracking contract |
 | `__tests__/validator.test.ts` | DSL-level semantic warnings |
 | `__tests__/vocabularies.test.ts` | Vocabulary table integrity |
