@@ -1,4 +1,15 @@
 // ---------------------------------------------------------------------------
+// Source range (character offsets in the original DSL source)
+// ---------------------------------------------------------------------------
+
+export interface SourceRange {
+  from: number; // character offset (inclusive)
+  to: number;   // character offset (exclusive)
+}
+
+export type PointerSourceMap = Map<string, SourceRange>;
+
+// ---------------------------------------------------------------------------
 // WPL AST Type Definitions (ported from Elixir ast.ex)
 // ---------------------------------------------------------------------------
 // Design decisions:
@@ -86,6 +97,7 @@ export interface Goal {
   target: Target | null;
   deadline: string | null; // ISO date string
   milestones: Milestone[] | null;
+  range?: SourceRange;
 }
 
 // ---------------------------------------------------------------------------
@@ -117,6 +129,7 @@ export interface Requirements {
   equipment: Equipment[] | null;
   contraindications: Contraindication[] | null;
   time_commitment: TimeCommitment | null;
+  range?: SourceRange;
 }
 
 // ---------------------------------------------------------------------------
@@ -131,6 +144,7 @@ export interface Input {
   type: InputType;
   options: string[] | null;
   label: string | null;
+  range?: SourceRange;
 }
 
 export type ConditionType = "simple" | "compound";
@@ -183,11 +197,13 @@ export interface Action {
 export interface Rule {
   condition: Condition;
   actions: Action[];
+  range?: SourceRange;
 }
 
 export interface Personalization {
   inputs: Input[] | null;
   rules: Rule[];
+  range?: SourceRange;
 }
 
 // ---------------------------------------------------------------------------
@@ -200,12 +216,14 @@ export interface Phase {
   goals: string[] | null;
   description: string | null;
   weeks: Week[];
+  range?: SourceRange;
 }
 
 export interface Week {
   number: number;
   name: string | null;
   days: Day[];
+  range?: SourceRange;
 }
 
 export type DayType =
@@ -226,6 +244,7 @@ export interface Day {
   schedule: [SchedulePref, ScheduleFlex] | null;
   blocks: Block[];
   notes: string | null;
+  range?: SourceRange;
 }
 
 export type BlockType =
@@ -251,6 +270,7 @@ export interface Block {
   rounds: number | null;
   rest_between_rounds: Duration | null;
   activities: Activity[];
+  range?: SourceRange;
 }
 
 // ---------------------------------------------------------------------------
@@ -288,6 +308,7 @@ export interface Exercise {
   tempo: string | null;
   rest: Duration | null;
   weight: Weight | null;
+  range?: SourceRange;
 }
 
 export type CardioType = "continuous" | "intervals" | "fartlek";
@@ -314,6 +335,7 @@ export interface Cardio {
   zone: number | null;
   intensity: Intensity | null;
   intervals: IntervalPattern | null;
+  range?: SourceRange;
 }
 
 export type NutritionTimingType =
@@ -342,6 +364,7 @@ export interface Nutrition {
   macros: Macros | null;
   calories: [number, number] | null;
   suggestions: string[] | null;
+  range?: SourceRange;
 }
 
 export interface Meditation {
@@ -350,6 +373,7 @@ export interface Meditation {
   duration: Duration;
   guided: boolean | null;
   audio_id: string | null;
+  range?: SourceRange;
 }
 
 export type RecoverySides = "both" | "left" | "right";
@@ -366,6 +390,7 @@ export interface Recovery {
   category: string;
   duration: Duration;
   exercises: RecoveryExercise[] | null;
+  range?: SourceRange;
 }
 
 export interface Habit {
@@ -375,6 +400,7 @@ export interface Habit {
   target_unit: string;
   frequency: string | null;
   reminders: string[] | null; // HH:MM strings
+  range?: SourceRange;
 }
 
 export interface SimpleActivity {
@@ -382,6 +408,7 @@ export interface SimpleActivity {
   name: string;
   duration: Duration | null;
   params: string[] | null;
+  range?: SourceRange;
 }
 
 // ---------------------------------------------------------------------------
@@ -398,16 +425,19 @@ export interface Checkpoint {
   trigger: CheckpointTrigger;
   measurements: string[] | null;
   questions: string[] | null;
+  range?: SourceRange;
 }
 
 export interface PointsRule {
   activity: string;
   points: number;
+  range?: SourceRange;
 }
 
 export interface PointsConfig {
   enabled: boolean;
   rules: PointsRule[] | null;
+  range?: SourceRange;
 }
 
 export interface Achievement {
@@ -429,6 +459,7 @@ export interface Progress {
   points: PointsConfig | null;
   achievements: Achievement[] | null;
   streaks: StreaksConfig | null;
+  range?: SourceRange;
 }
 
 // ---------------------------------------------------------------------------
@@ -467,4 +498,5 @@ export interface Document {
   progress: Progress | null;
   notifications: Notification[] | null;
   rendering: Rendering | null;
+  range?: SourceRange;
 }
