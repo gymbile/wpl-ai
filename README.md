@@ -1,5 +1,6 @@
 # @gymbile/wpl-ai
 
+[![npm version](https://img.shields.io/npm/v/@gymbile/wpl-ai.svg)](https://www.npmjs.com/package/@gymbile/wpl-ai)
 [![CI](https://github.com/gymbile/wpl-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/gymbile/wpl-ai/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache_2.0-blue.svg)](LICENSE)
 
@@ -33,17 +34,19 @@ WPL-AI source ──[tokenize]──▶ Tokens ──[parse]──▶ AST ──
 
 ## Installation
 
-This package is distributed as a **GitHub-hosted dependency** (not currently published to npm).
-
 ```bash
-npm install github:gymbile/wpl-ai
-# or pin to a tag for reproducibility:
-npm install github:gymbile/wpl-ai#v1.1.1
+npm install @gymbile/wpl-ai
 ```
 
-The package's `prepare` script runs `tsup` on install to produce `dist/` artifacts. Requires Node ≥18.
+Requires Node ≥18. Ships dual ESM + CJS builds with TypeScript declarations.
 
-For local development against an unpublished branch, use `npm link`.
+```ts
+// ESM
+import { compileWplAi } from "@gymbile/wpl-ai";
+
+// CommonJS
+const { compileWplAi } = require("@gymbile/wpl-ai");
+```
 
 ---
 
@@ -414,7 +417,7 @@ Test layout:
 
 See [`CHANGELOG.md`](CHANGELOG.md) for full release history.
 
-Releases are tagged on the GitHub repo. Consumers using `github:gymbile/wpl-ai` get the latest commit on `main` by default; pin to `github:gymbile/wpl-ai#v1.1.1` for reproducibility.
+Releases are tagged on the GitHub repo and published to [npm](https://www.npmjs.com/package/@gymbile/wpl-ai) on tag push. Pin to a specific version (`@gymbile/wpl-ai@1.1.1`) for reproducibility.
 
 ---
 
