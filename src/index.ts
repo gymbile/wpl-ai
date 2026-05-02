@@ -6,7 +6,7 @@ import { tokenize } from "./lexer.js";
 import { parse } from "./parser.js";
 import { compile } from "./compiler.js";
 import { validateSemantics, type SemanticWarning } from "./validator.js";
-import { validateSchema, type SchemaValidationError } from "./schema-validator.js";
+import { validate as validateWpl, type ValidationResult } from "@gymbile/wpl-validator";
 import type { Document, PointerSourceMap } from "./types.js";
 import type { WplError } from "./errors.js";
 import { formatErrors, errorSummary } from "./errors.js";
@@ -21,7 +21,7 @@ export type CompileResult =
       json: Record<string, unknown>;
       ast: Document;
       warnings: SemanticWarning[];
-      schemaErrors: SchemaValidationError[];
+      validation: ValidationResult;
       pointerMap: PointerSourceMap;
     }
   | { ok: false; errors: WplError[]; formatted: string; summary: string };
@@ -62,14 +62,14 @@ export function compileWplAi(source: string): CompileResult {
   }
 
   const warnings = validateSemantics(parseResult.document, source);
-  const schemaResult = validateSchema(compileResult.json);
+  const validation = validateWpl(compileResult.json);
 
   return {
     ok: true,
     json: compileResult.json,
     ast: parseResult.document,
     warnings,
-    schemaErrors: schemaResult.errors,
+    validation,
     pointerMap: compileResult.pointerMap,
   };
 }
@@ -88,8 +88,7 @@ export { tokenize } from "./lexer.js";
 export { ALL_EXERCISES, isKnownExercise } from "./exercises.js";
 export { suggest, bestMatch, validate } from "./exercise-matcher.js";
 export { validateVocabulary } from "./vocabulary-matcher.js";
-export { validateSchema } from "./schema-validator.js";
-export type { SchemaValidationError, SchemaValidationResult } from "./schema-validator.js";
+export type { ValidationResult, ValidationError } from "@gymbile/wpl-validator";
 export {
   GOAL_CATEGORIES,
   EXERCISE_CATEGORIES,

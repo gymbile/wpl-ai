@@ -1,6 +1,6 @@
 {
   "name": "@gymbile/wpl-ai",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "WPL-AI compiler: parse and compile WPL-AI DSL into WPL JSON",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -36,6 +36,7 @@
   },
   "license": "UNLICENSED",
   "dependencies": {
+    "@gymbile/wpl-validator": "^1.0.0",
     "ajv": "^8.18.0"
   },
   "devDependencies": {
