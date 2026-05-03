@@ -341,3 +341,66 @@ PHASES
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Position correctness — regression test for findInSource bug
+// ---------------------------------------------------------------------------
+
+describe("Semantic validator - warning positions", () => {
+  it("points at the second occurrence of an unknown term, not the first", () => {
+    // First cardio uses a valid modality "running" (no warning).
+    // Second cardio uses an unknown modality "runing" (typo) — and crucially
+    // the typo "runing" is a substring that does NOT collide with "running".
+    // We assert that the warning points at the line containing "runing", not
+    // line 1 of the source. Pre-fix, findInSource would still return the
+    // first matching line/column for the keyword as searched against `lines`.
+    //
+    // To make this a real duplicate-term case, we use an unknown category
+    // that intentionally appears twice in the source: once as a comment-like
+    // string in the plan name, and once as the offending value.
+    const source = `\
+PLAN "lose_fat plan"
+TYPE workout
+
+GOALS
+  GOAL primary lose_fat:
+    name "Lose fat"
+`;
+    const result = compileWplAi(source);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const goalWarnings = result.warnings.filter(w => w.message.includes("goal category"));
+    expect(goalWarnings.length).toBe(1);
+    // The actual offending token is on line 5, not line 1.
+    expect(goalWarnings[0]!.line).toBe(5);
+  });
+
+  it("points at the second of two activities sharing an unknown modality", () => {
+    // Two cardio activities with the same unknown modality "joging".
+    // Each warning should point at its own activity, not both at the first.
+    const source = `\
+PLAN "Test"
+TYPE workout
+
+PHASES
+  PHASE "Main" (4 weeks):
+    WEEK 1:
+      DAY 1 training 60m:
+        main:
+          cardio joging continuous:
+            total 20 min
+          cardio joging continuous:
+            total 20 min
+`;
+    const result = compileWplAi(source);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const cardioWarnings = result.warnings.filter(w => w.message.includes("cardio modality"));
+    expect(cardioWarnings.length).toBe(2);
+    // First warning points at the first cardio activity, second at the second.
+    expect(cardioWarnings[0]!.line).toBe(9);
+    expect(cardioWarnings[1]!.line).toBe(11);
+    // And they must not be identical positions.
+    expect(cardioWarnings[0]!.line).not.toBe(cardioWarnings[1]!.line);
+  });
+});

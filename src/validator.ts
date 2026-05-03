@@ -5,12 +5,18 @@
 // appropriateness, domain vocabulary correctness, and structural coherence.
 // Produces warnings (not errors) so the plan still compiles but the user
 // gets feedback.
+//
+// Position info comes from AST node ranges (recorded by the parser via
+// makeRange). When a sub-node doesn't yet carry a range — e.g. Intensity
+// values, NutritionTiming, Macros, etc. before Refactor C lands — we fall
+// back to the closest enclosing parent's range.
 // ---------------------------------------------------------------------------
 
 import type {
   Document,
   PlanType,
   Activity,
+  SourceRange,
 } from "./types.js";
 
 import { validateVocabulary } from "./vocabulary-matcher.js";
@@ -55,10 +61,72 @@ const EXPECTED_BLOCKS: Record<PlanType, Set<string>> = {
   hybrid: new Set(["warmup", "main", "cooldown", "nutrition", "meditation", "education", "assessment"]),
 };
 
+// ---------------------------------------------------------------------------
+// SourceMap: precomputed offset → line/column lookup
+// ---------------------------------------------------------------------------
+
+class SourceMap {
+  private lineStarts: number[];
+  readonly source: string;
+
+  constructor(source: string) {
+    this.source = source;
+    this.lineStarts = [0];
+    for (let i = 0; i < source.length; i++) {
+      if (source[i] === "\n") this.lineStarts.push(i + 1);
+    }
+  }
+
+  positionOf(offset: number): { line: number; column: number } {
+    let lo = 0;
+    let hi = this.lineStarts.length - 1;
+    while (lo < hi) {
+      const mid = Math.ceil((lo + hi + 1) / 2);
+      if (this.lineStarts[mid]! <= offset) lo = mid;
+      else hi = mid - 1;
+    }
+    return { line: lo + 1, column: offset - this.lineStarts[lo]! + 1 };
+  }
+
+  // Resolve a range to {line, column, length}. If range is given and valid,
+  // use it; otherwise fall back to first occurrence of `keyword` (legacy
+  // behaviour — only used for sub-nodes without ranges).
+  locateRange(
+    range: SourceRange | undefined,
+    fallbackKeyword: string,
+  ): { line: number; column: number; length: number } {
+    if (range && range.from >= 0 && range.to >= range.from) {
+      // Find the first occurrence of fallbackKeyword inside the range, so
+      // warnings about a sub-string (e.g. a vocabulary value) point at the
+      // value within the parent's source span rather than the parent's start.
+      const slice = this.source.slice(range.from, range.to);
+      const relIdx = slice.indexOf(fallbackKeyword);
+      if (relIdx !== -1) {
+        const offset = range.from + relIdx;
+        const { line, column } = this.positionOf(offset);
+        return { line, column, length: fallbackKeyword.length };
+      }
+      // Substring not found inside the range — point at the range start.
+      const { line, column } = this.positionOf(range.from);
+      return { line, column, length: Math.max(1, range.to - range.from) };
+    }
+
+    // Legacy fallback: search whole source. Only reached when neither the
+    // node nor any enclosing parent has a range — which after Refactor C
+    // should never happen for the validator's emission sites.
+    const idx = this.source.indexOf(fallbackKeyword);
+    if (idx !== -1) {
+      const { line, column } = this.positionOf(idx);
+      return { line, column, length: fallbackKeyword.length };
+    }
+    return { line: 1, column: 1, length: 1 };
+  }
+}
+
 export function validateSemantics(doc: Document, source: string): SemanticWarning[] {
   const warnings: SemanticWarning[] = [];
   const planType = doc.header.type;
-  const lines = source.split("\n");
+  const sm = new SourceMap(source);
 
   // --- Plan type consistency (skip for hybrid) ---
   if (planType !== "hybrid") {
@@ -70,7 +138,7 @@ export function validateSemantics(doc: Document, source: string): SemanticWarnin
         for (const day of week.days ?? []) {
           for (const block of day.blocks ?? []) {
             if (!allowedBlocks.has(block.type)) {
-              const loc = findInSource(lines, block.type);
+              const loc = sm.locateRange(block.range, block.type);
               warnings.push({
                 severity: "warning",
                 message: `Block type "${block.type}" is unusual for a "${planType}" plan. Consider using TYPE hybrid.`,
@@ -81,7 +149,7 @@ export function validateSemantics(doc: Document, source: string): SemanticWarnin
             for (const activity of block.activities ?? []) {
               if (!allowedActivities.has(activity.kind)) {
                 const activityLabel = getActivityLabel(activity);
-                const loc = findInSource(lines, activityLabel);
+                const loc = sm.locateRange(activity.range, activityLabel);
                 warnings.push({
                   severity: "warning",
                   message: `${activity.kind} activity "${activityLabel}" doesn't match plan type "${planType}". Expected: ${Array.from(allowedActivities).join(", ")}.`,
@@ -96,10 +164,10 @@ export function validateSemantics(doc: Document, source: string): SemanticWarnin
   }
 
   // --- Domain vocabulary validation ---
-  validateGoalCategories(doc, lines, warnings);
-  validateActivityVocabularies(doc, lines, warnings);
-  validateRequirements(doc, lines, warnings);
-  validateProgress(doc, lines, warnings);
+  validateGoalCategories(doc, sm, warnings);
+  validateActivityVocabularies(doc, sm, warnings);
+  validateRequirements(doc, sm, warnings);
+  validateProgress(doc, sm, warnings);
 
   return warnings;
 }
@@ -110,17 +178,18 @@ export function validateSemantics(doc: Document, source: string): SemanticWarnin
 
 function validateGoalCategories(
   doc: Document,
-  lines: string[],
+  sm: SourceMap,
   warnings: SemanticWarning[],
 ): void {
   for (const goal of doc.goals ?? []) {
-    checkVocabulary(goal.category, "goal category", GOAL_CATEGORY_SET, GOAL_CATEGORIES, lines, warnings);
+    checkVocabulary(goal.category, "goal category", GOAL_CATEGORY_SET, GOAL_CATEGORIES, goal.range, sm, warnings);
 
-    // Check target metric
     if (goal.target) {
-      checkVocabulary(goal.target.metric, "measurement metric", MEASUREMENT_METRIC_SET, MEASUREMENT_METRICS, lines, warnings);
+      // Target sub-node has no range yet; fall back to the goal's range.
+      // TODO(Refactor C): once Target carries a range, use it directly.
+      checkVocabulary(goal.target.metric, "measurement metric", MEASUREMENT_METRIC_SET, MEASUREMENT_METRICS, goal.range, sm, warnings);
       if (goal.target.unit) {
-        checkWeightOrDistanceUnit(goal.target.unit, lines, warnings);
+        checkWeightOrDistanceUnit(goal.target.unit, goal.range, sm, warnings);
       }
     }
   }
@@ -132,7 +201,7 @@ function validateGoalCategories(
 
 function validateActivityVocabularies(
   doc: Document,
-  lines: string[],
+  sm: SourceMap,
   warnings: SemanticWarning[],
 ): void {
   for (const phase of doc.phases ?? []) {
@@ -140,7 +209,7 @@ function validateActivityVocabularies(
       for (const day of week.days ?? []) {
         for (const block of day.blocks ?? []) {
           for (const activity of block.activities ?? []) {
-            validateActivityValues(activity, lines, warnings);
+            validateActivityValues(activity, sm, warnings);
           }
         }
       }
@@ -150,28 +219,30 @@ function validateActivityVocabularies(
 
 function validateActivityValues(
   activity: Activity,
-  lines: string[],
+  sm: SourceMap,
   warnings: SemanticWarning[],
 ): void {
   switch (activity.kind) {
     case "cardio":
-      checkVocabulary(activity.modality, "cardio modality", CARDIO_MODALITY_SET, CARDIO_MODALITIES, lines, warnings);
+      checkVocabulary(activity.modality, "cardio modality", CARDIO_MODALITY_SET, CARDIO_MODALITIES, activity.range, sm, warnings);
       break;
     case "nutrition":
-      checkVocabulary(activity.category, "nutrition category", NUTRITION_CATEGORY_SET, NUTRITION_CATEGORIES, lines, warnings);
+      checkVocabulary(activity.category, "nutrition category", NUTRITION_CATEGORY_SET, NUTRITION_CATEGORIES, activity.range, sm, warnings);
       break;
     case "meditation":
-      checkVocabulary(activity.category, "meditation category", MEDITATION_CATEGORY_SET, MEDITATION_CATEGORIES, lines, warnings);
+      checkVocabulary(activity.category, "meditation category", MEDITATION_CATEGORY_SET, MEDITATION_CATEGORIES, activity.range, sm, warnings);
       break;
     case "recovery":
-      checkVocabulary(activity.category, "recovery category", RECOVERY_CATEGORY_SET, RECOVERY_CATEGORIES, lines, warnings);
+      checkVocabulary(activity.category, "recovery category", RECOVERY_CATEGORY_SET, RECOVERY_CATEGORIES, activity.range, sm, warnings);
       break;
     case "habit":
-      checkVocabulary(activity.category, "habit category", HABIT_CATEGORY_SET, HABIT_CATEGORIES, lines, warnings);
+      checkVocabulary(activity.category, "habit category", HABIT_CATEGORY_SET, HABIT_CATEGORIES, activity.range, sm, warnings);
       break;
     case "exercise":
       if (activity.weight?.unit) {
-        checkVocabulary(activity.weight.unit, "weight unit", WEIGHT_UNIT_SET, WEIGHT_UNITS, lines, warnings);
+        // Weight sub-node has no range yet; fall back to the exercise's range.
+        // TODO(Refactor C): once Weight carries a range, use it directly.
+        checkVocabulary(activity.weight.unit, "weight unit", WEIGHT_UNIT_SET, WEIGHT_UNITS, activity.range, sm, warnings);
       }
       break;
   }
@@ -183,20 +254,22 @@ function validateActivityValues(
 
 function validateRequirements(
   doc: Document,
-  lines: string[],
+  sm: SourceMap,
   warnings: SemanticWarning[],
 ): void {
   const req = doc.requirements;
   if (!req) return;
 
   for (const level of req.fitness_levels ?? []) {
-    checkVocabulary(level, "fitness level", FITNESS_LEVEL_SET, FITNESS_LEVELS, lines, warnings);
+    checkVocabulary(level, "fitness level", FITNESS_LEVEL_SET, FITNESS_LEVELS, req.range, sm, warnings);
   }
 
   for (const equip of req.equipment ?? []) {
-    checkVocabulary(equip.name, "equipment", EQUIPMENT_SET, EQUIPMENT, lines, warnings);
+    // Equipment sub-node has no range yet; fall back to requirements' range.
+    // TODO(Refactor C): once Equipment carries a range, use it directly.
+    checkVocabulary(equip.name, "equipment", EQUIPMENT_SET, EQUIPMENT, req.range, sm, warnings);
     for (const alt of equip.alternatives ?? []) {
-      checkVocabulary(alt, "equipment", EQUIPMENT_SET, EQUIPMENT, lines, warnings);
+      checkVocabulary(alt, "equipment", EQUIPMENT_SET, EQUIPMENT, req.range, sm, warnings);
     }
   }
 }
@@ -207,7 +280,7 @@ function validateRequirements(
 
 function validateProgress(
   doc: Document,
-  lines: string[],
+  sm: SourceMap,
   warnings: SemanticWarning[],
 ): void {
   const progress = doc.progress;
@@ -215,13 +288,15 @@ function validateProgress(
 
   for (const cp of progress.checkpoints ?? []) {
     for (const m of cp.measurements ?? []) {
-      checkVocabulary(m, "measurement metric", MEASUREMENT_METRIC_SET, MEASUREMENT_METRICS, lines, warnings);
+      checkVocabulary(m, "measurement metric", MEASUREMENT_METRIC_SET, MEASUREMENT_METRICS, cp.range, sm, warnings);
     }
   }
 
   if (progress.streaks?.types) {
+    // StreaksConfig sub-node has no range yet; fall back to progress' range.
+    // TODO(Refactor C): once StreaksConfig carries a range, use it directly.
     for (const t of progress.streaks.types) {
-      checkVocabulary(t, "streak type", STREAK_TYPE_SET, STREAK_TYPES, lines, warnings);
+      checkVocabulary(t, "streak type", STREAK_TYPE_SET, STREAK_TYPES, progress.range, sm, warnings);
     }
   }
 }
@@ -235,13 +310,14 @@ function checkVocabulary(
   fieldName: string,
   knownSet: Set<string>,
   allValues: readonly string[],
-  lines: string[],
+  range: SourceRange | undefined,
+  sm: SourceMap,
   warnings: SemanticWarning[],
 ): void {
   const result = validateVocabulary(value, knownSet, allValues);
   if (result.ok) return;
 
-  const loc = findInSource(lines, value);
+  const loc = sm.locateRange(range, value);
   let message: string;
   if (result.suggestions.length > 0) {
     message = `Unknown ${fieldName} "${value}". Did you mean: ${result.suggestions.join(", ")}?`;
@@ -253,18 +329,15 @@ function checkVocabulary(
 
 function checkWeightOrDistanceUnit(
   unit: string,
-  lines: string[],
+  range: SourceRange | undefined,
+  sm: SourceMap,
   warnings: SemanticWarning[],
 ): void {
   if (WEIGHT_UNIT_SET.has(unit)) return;
-  // Also allow percentage, common metric keywords, and time units
   if (unit === "percentage" || unit === "%" || unit === "percentage_1rm") return;
 
-  // Muscle-group names belong to the body_part field, not the unit field.
-  // Flag them explicitly — they previously passed silently due to a stray
-  // MUSCLE_GROUPS allowlist entry.
   if (MUSCLE_GROUP_SET.has(unit)) {
-    const loc = findInSource(lines, unit);
+    const loc = sm.locateRange(range, unit);
     warnings.push({
       severity: "warning",
       message: `Unrecognized unit "${unit}" looks like a muscle group, not a measurement unit.`,
@@ -273,12 +346,9 @@ function checkWeightOrDistanceUnit(
     return;
   }
 
-  // Not a known unit — only warn for values close enough to a weight unit
-  // to suggest a misspelling. Freeform units ("glasses", "steps") are silently
-  // ignored.
   const result = validateVocabulary(unit, WEIGHT_UNIT_SET, WEIGHT_UNITS);
   if (!result.ok && result.suggestions.length > 0) {
-    const loc = findInSource(lines, unit);
+    const loc = sm.locateRange(range, unit);
     warnings.push({
       severity: "info",
       message: `Unrecognized unit "${unit}". Did you mean: ${result.suggestions.join(", ")}?`,
@@ -304,17 +374,4 @@ function getActivityLabel(activity: Activity): string {
     case "simple":
       return activity.name;
   }
-}
-
-function findInSource(
-  lines: string[],
-  keyword: string,
-): { line: number; column: number; length: number } {
-  for (let i = 0; i < lines.length; i++) {
-    const col = lines[i]!.indexOf(keyword);
-    if (col !== -1) {
-      return { line: i + 1, column: col + 1, length: keyword.length };
-    }
-  }
-  return { line: 1, column: 1, length: 1 };
 }
