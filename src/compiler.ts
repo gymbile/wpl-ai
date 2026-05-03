@@ -677,7 +677,7 @@ function compileExercise(
       p.rest = compileDuration(ex.rest);
     }
     if (ex.tempo) {
-      p.tempo = ex.tempo;
+      p.tempo = normalizeTempo(ex.tempo);
     }
     if (ex.weight) {
       p.weight = ctx.withSegment("weight", ex.weight, () => compileWeight(ex.weight!));
@@ -1139,6 +1139,51 @@ function compileNotification(notif: Notification): Record<string, unknown> {
 
 function compileDuration(dur: Duration): Record<string, unknown> {
   return { value: dur.value, unit: dur.unit };
+}
+
+/**
+ * Normalize a tempo value into the structured form when the input is a
+ * recognizable 4-digit notation:
+ *   "3-1-1-0"  -> { eccentric: 3, pause_bottom: 1, concentric: 1, pause_top: 0 }
+ *   "3110"     -> same
+ *   "30X1"     -> { eccentric: 3, pause_bottom: 0, concentric: 0, pause_top: 1, explosive_concentric: true }
+ * Falls back to the original (string or already-structured object) when the
+ * input does not match these shapes — schema's `Tempo` is a oneOf so both
+ * forms are valid.
+ */
+function normalizeTempo(tempo: import("./types.js").Tempo): unknown {
+  if (typeof tempo !== "string") return tempo;
+
+  const dashed = /^(\d+)[-:](\d+|X)[-:](\d+|X)[-:](\d+|X)$/i.exec(tempo);
+  const fourDigit = /^(\d|X)(\d|X)(\d|X)(\d|X)$/i.exec(tempo);
+  const m = dashed ?? fourDigit;
+  if (!m) return tempo;
+
+  const ecc = parseSeg(m[1]);
+  const pauseBottom = parseSeg(m[2]);
+  const conc = parseSeg(m[3]);
+  const pauseTop = parseSeg(m[4]);
+
+  // The eccentric phase cannot be "X" (no explosive lowering convention).
+  if (ecc.value === null) return tempo;
+
+  const result: Record<string, unknown> = {
+    eccentric: ecc.value,
+    pause_bottom: pauseBottom.value ?? 0,
+    concentric: conc.value ?? 0,
+    pause_top: pauseTop.value ?? 0,
+  };
+  if (conc.explosive) {
+    result.explosive_concentric = true;
+  }
+  return result;
+}
+
+function parseSeg(s: string): { value: number | null; explosive: boolean } {
+  if (s === "X" || s === "x") return { value: null, explosive: true };
+  const n = Number(s);
+  if (!Number.isFinite(n)) return { value: null, explosive: false };
+  return { value: n, explosive: false };
 }
 
 function compileWeight(weight: Weight): Record<string, unknown> {

@@ -111,6 +111,10 @@ const LEXER_ONLY_KEYWORDS: readonly string[] = [
   "scope",
   // Exercise params
   "rpe", "rir", "tempo", "rest", "weight",
+  // Schema v1.3.0+ exercise tagging
+  "muscles", "pattern",
+  // Schema v1.5.0+ sub-plan inclusion
+  "subplan",
   // Prepositions
   "before", "after", "in",
   // Distance units (not in GRAMMAR)
@@ -161,6 +165,7 @@ const KEYWORDS: Set<string> = new Set<string>([
   ...GRAMMAR.unit_weight,
   ...GRAMMAR.schedule_pref,
   ...GRAMMAR.schedule_flex,
+  ...GRAMMAR.phase_type,
   ...LEXER_ONLY_KEYWORDS,
 ]);
 

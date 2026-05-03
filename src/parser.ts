@@ -97,6 +97,9 @@ import {
   TIME_UNIT_SHORT_SET,
   SCHEDULE_PREF_SET,
   SCHEDULE_FLEX_SET,
+  PHASE_TYPE_SET,
+  MUSCLE_GROUP_SET,
+  MOVEMENT_PATTERN_SET,
 } from "./grammar.js";
 
 // ---------------------------------------------------------------------------
@@ -1542,6 +1545,15 @@ function parsePhase(state: ParseState): Phase {
   const fromOffset = currentOffset(state);
   advance(state); // skip PHASE
   const name = expectString(state);
+
+  // Optional periodization role (schema v1.2.0+): PHASE "Name" accumulation (4 weeks):
+  let phaseType: import("./types.js").PhaseType | null = null;
+  const peek = currentToken(state);
+  if (peek.type === "keyword" && PHASE_TYPE_SET.has(peek.value as string)) {
+    phaseType = peek.value as import("./types.js").PhaseType;
+    advance(state);
+  }
+
   expectLparen(state);
   const duration = parseDuration(state);
   expectRparen(state);
@@ -1556,6 +1568,7 @@ function parsePhase(state: ParseState): Phase {
 
   return {
     name,
+    type: phaseType,
     duration,
     goals: (attrs.goals as string[]) ?? null,
     description: (attrs.description as string) ?? null,
@@ -1609,6 +1622,16 @@ function parseWeek(state: ParseState): Week {
   advance(state); // skip WEEK
   const number = expectNumber(state);
 
+  // Optional deload flag (schema v1.2.0+): WEEK 4 deload:
+  let isDeload = false;
+  {
+    const peek = currentToken(state);
+    if (peek.type === "keyword" && peek.value === "deload") {
+      isDeload = true;
+      advance(state);
+    }
+  }
+
   let name: string | null = null;
   if (currentToken(state).type === "string") {
     name = currentToken(state).value as string;
@@ -1627,6 +1650,7 @@ function parseWeek(state: ParseState): Week {
   return {
     number: Math.trunc(number),
     name,
+    is_deload: isDeload ? true : null,
     days,
     range: makeRange(state, fromOffset),
   };
@@ -1844,6 +1868,9 @@ function parseBlockBody(
         case "habit":
           activities.push(parseHabitActivity(state));
           continue;
+        case "subplan":
+          activities.push(parseSubPlanActivity(state));
+          continue;
         default:
           break;
       }
@@ -1896,6 +1923,9 @@ function parseExerciseOrSimpleActivity(state: ParseState): Activity {
       // Validate the exercise ref
       validateExerciseRef(state, name);
 
+      const primaryMuscles = modifiers.primary_muscles as string[] | undefined;
+      const secondaryMuscles = modifiers.secondary_muscles as string[] | undefined;
+
       return {
         kind: "exercise",
         exercise_ref: name,
@@ -1907,6 +1937,18 @@ function parseExerciseOrSimpleActivity(state: ParseState): Activity {
         tempo: (modifiers.tempo as string) ?? null,
         rest: (modifiers.rest as Duration) ?? null,
         weight: (modifiers.weight as Weight) ?? null,
+        primary_muscles:
+          primaryMuscles && primaryMuscles.length > 0
+            ? (primaryMuscles as import("./types.js").MuscleGroup[])
+            : null,
+        secondary_muscles:
+          secondaryMuscles && secondaryMuscles.length > 0
+            ? (secondaryMuscles as import("./types.js").MuscleGroup[])
+            : null,
+        movement_pattern:
+          (modifiers.movement_pattern as
+            | import("./types.js").MovementPattern
+            | undefined) ?? null,
         range: makeRange(state, fromOffset),
       };
     }
@@ -2030,12 +2072,80 @@ function parseExerciseModifiers(
         advance(state);
         modifiers.name = expectString(state);
         continue;
+      case "muscles": {
+        advance(state);
+        const { primary, secondary } = parseMuscleSpec(state);
+        modifiers.primary_muscles = primary;
+        modifiers.secondary_muscles = secondary;
+        continue;
+      }
+      case "pattern":
+        advance(state);
+        modifiers.movement_pattern = parseMovementPattern(state);
+        continue;
       default:
         return modifiers;
     }
   }
 
   return modifiers;
+}
+
+/**
+ * Parses a muscle-group spec following the `muscles` keyword. Two forms:
+ *   muscles chest, triceps                       — all primary
+ *   muscles primary chest, triceps secondary front_delts
+ */
+function parseMuscleSpec(state: ParseState): {
+  primary: string[];
+  secondary: string[];
+} {
+  const peek = currentToken(state);
+
+  // Explicit form starts with `primary` keyword.
+  if (peek.type === "keyword" && peek.value === "primary") {
+    advance(state);
+    const primary = parseMuscleList(state);
+    let secondary: string[] = [];
+    const next = currentToken(state);
+    if (next.type === "keyword" && next.value === "secondary") {
+      advance(state);
+      secondary = parseMuscleList(state);
+    }
+    return { primary, secondary };
+  }
+
+  // Shorthand: comma list, all primary.
+  return { primary: parseMuscleList(state), secondary: [] };
+}
+
+/** Comma-separated list of muscle-group bare words. Stops at any non-muscle token. */
+function parseMuscleList(state: ParseState): string[] {
+  const items: string[] = [];
+  for (;;) {
+    const tok = currentToken(state);
+    if (tok.type !== "bare_word") break;
+    const value = tok.value as string;
+    if (!MUSCLE_GROUP_SET.has(value)) break;
+    items.push(value);
+    advance(state);
+    const sep = currentToken(state);
+    if (sep.type === "comma") {
+      advance(state);
+      continue;
+    }
+    break;
+  }
+  return items;
+}
+
+function parseMovementPattern(state: ParseState): string | null {
+  const tok = currentToken(state);
+  if (tok.type !== "bare_word") return null;
+  const value = tok.value as string;
+  if (!MOVEMENT_PATTERN_SET.has(value)) return null;
+  advance(state);
+  return value;
 }
 
 function parseTempo(state: ParseState): string {
@@ -2662,6 +2772,30 @@ function parseRecoveryExerciseAsActivity(state: ParseState): Recovery {
 // ---------------------------------------------------------------------------
 // Habit Activity
 // ---------------------------------------------------------------------------
+
+/**
+ * Parses a sub-plan inclusion (schema v1.5.0+):
+ *   subplan plan_warmup_full_body
+ *   subplan plan_warmup_full_body "Standard warmup"
+ */
+function parseSubPlanActivity(state: ParseState): import("./types.js").SubPlan {
+  const fromOffset = currentOffset(state);
+  advance(state); // skip "subplan"
+  const ref = expectBareWord(state);
+
+  let name: string | null = null;
+  if (currentToken(state).type === "string") {
+    name = currentToken(state).value as string;
+    advance(state);
+  }
+
+  return {
+    kind: "sub_plan",
+    sub_plan_ref: ref,
+    name,
+    range: makeRange(state, fromOffset),
+  };
+}
 
 function parseHabitActivity(state: ParseState): Habit {
   const fromOffset = currentOffset(state);

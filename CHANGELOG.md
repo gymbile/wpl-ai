@@ -7,6 +7,38 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.7.0] — 2026-05-03
+
+### Added — DSL syntax for schema v1.2.0–v1.5.0 features
+
+- **`PHASE "Name" <type> (N weeks):`** — optional periodization role between
+  the phase name and duration. Recognized values:
+  `accumulation | intensification | realization | deload | base | build | peak | recovery | transition`.
+- **`WEEK <n> deload [<name>]:`** — optional `deload` flag right after the
+  week number. Compiles to `Week.is_deload: true`.
+- **Exercise `muscles` modifier** — two forms:
+  - shorthand: `muscles chest, triceps` (all primary)
+  - explicit: `muscles primary chest, triceps secondary front_delts`
+  Compiles to `primary_muscles[]` and `secondary_muscles[]`.
+- **Exercise `pattern` modifier** — `pattern push_horizontal`. Compiles to
+  `movement_pattern`.
+- **`subplan <plan_id> ["name"]`** — block-level activity that includes
+  another plan by reference. Compiles to a `SubPlanActivity`.
+- **Tempo auto-normalization** — the existing string-form tempo
+  (`tempo 3 - 1 - 2 - 0`) is now normalized at compile time into the
+  structured `Tempo` shape from schema v1.2.0
+  (`{ eccentric, pause_bottom, concentric, pause_top, explosive_concentric? }`).
+  Backwards-compatible: source unchanged, output upgraded.
+
+### Notes
+The DSL now produces output for every schema v1.2.0–v1.5.0 surface that is
+authored per-line (phases, weeks, exercises, sub-plan inclusions). Per-plan
+config-style additions — `athlete_thresholds`, cardio `intensity.zone_model`,
+per-kg macros/calories, `weight: percentage_bodyweight`, telemetry source
+prefixes, clinical condition prefixes — are accepted by the schema and
+validators today; DSL syntax for them is deferred to a follow-up release
+(consumers who need them can author the JSON directly or extend their AST).
+
 ## [1.6.0] — 2026-05-03
 
 ### Added

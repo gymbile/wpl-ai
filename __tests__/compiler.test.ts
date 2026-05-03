@@ -914,10 +914,15 @@ PHASES
     expect(weight.type).toBe("bodyweight");
   });
 
-  it("compiles tempo", () => {
+  it("compiles tempo (auto-normalized to structured Tempo per schema v1.2.0+)", () => {
     const activity = getFirstActivity("bench_press 3x10 tempo 3 - 1 - 2 - 0");
     const rx = activity.prescription as Record<string, unknown>;
-    expect(rx.tempo).toBe("3-1-2-0");
+    expect(rx.tempo).toEqual({
+      eccentric: 3,
+      pause_bottom: 1,
+      concentric: 2,
+      pause_top: 0,
+    });
   });
 
   it("compiles multiple exercises in a block with sequential IDs", () => {

@@ -50,7 +50,33 @@ export const GRAMMAR = {
   recovery_category: ["stretching", "foam_rolling", "massage", "cold_therapy", "heat_therapy", "sleep", "cooldown"],
   habit_category: ["hydration", "sleep", "steps", "screen_time", "custom"],
   recovery_sides: ["both", "left", "right"],
-  weight_type: ["bodyweight", "absolute", "percentage_1rm"],
+  weight_type: ["bodyweight", "absolute", "percentage_1rm", "percentage_bodyweight"],
+
+  // -- Periodization (schema v1.2.0+) --
+  phase_type: [
+    "accumulation", "intensification", "realization",
+    "deload", "base", "build", "peak", "recovery", "transition",
+  ],
+
+  // -- Muscle-group taxonomy (schema v1.3.0+) --
+  muscle_group: [
+    "chest", "upper_back", "lats", "traps",
+    "front_delts", "side_delts", "rear_delts",
+    "biceps", "triceps", "forearms",
+    "abs", "obliques", "lower_back", "spinal_erectors",
+    "glutes", "quadriceps", "hamstrings", "calves",
+    "hip_adductors", "hip_abductors", "hip_flexors",
+    "neck",
+  ],
+
+  // -- Functional movement-pattern taxonomy (schema v1.3.0+) --
+  movement_pattern: [
+    "squat", "hinge", "lunge",
+    "push_horizontal", "push_vertical",
+    "pull_horizontal", "pull_vertical",
+    "carry", "rotate", "anti_rotate",
+    "gait", "jump", "isolation",
+  ],
 
   // -- Units (EBNF §1.3) --
   unit_time: ["seconds", "minutes", "hours", "days", "weeks"],
@@ -88,3 +114,6 @@ export const RECOVERY_SIDES_SET = new Set<string>(GRAMMAR.recovery_sides);
 export const TIME_UNIT_SHORT_SET = new Set<string>(GRAMMAR.unit_time_short);
 export const SCHEDULE_PREF_SET = new Set<string>(GRAMMAR.schedule_pref);
 export const SCHEDULE_FLEX_SET = new Set<string>(GRAMMAR.schedule_flex);
+export const PHASE_TYPE_SET = new Set<string>(GRAMMAR.phase_type);
+export const MUSCLE_GROUP_SET = new Set<string>(GRAMMAR.muscle_group);
+export const MOVEMENT_PATTERN_SET = new Set<string>(GRAMMAR.movement_pattern);
