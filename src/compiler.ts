@@ -808,7 +808,14 @@ function compileNutrition(
       );
     }
     if (nutrition.calories) {
-      p.calories = { min: nutrition.calories[0], max: nutrition.calories[1] };
+      const cal: Record<string, unknown> = {
+        min: nutrition.calories[0],
+        max: nutrition.calories[1],
+      };
+      if (nutrition.calories_unit && nutrition.calories_unit !== "kcal") {
+        cal.unit = nutrition.calories_unit;
+      }
+      p.calories = cal;
     }
     if (nutrition.suggestions && nutrition.suggestions.length > 0) {
       p.suggestions = nutrition.suggestions;
@@ -1204,13 +1211,25 @@ function compileMacros(macros: Macros): Record<string, unknown> {
   const compiled: Record<string, unknown> = {};
 
   if (macros.protein) {
-    compiled.protein = { min: macros.protein[0], max: macros.protein[1], unit: "g" };
+    compiled.protein = {
+      min: macros.protein[0],
+      max: macros.protein[1],
+      unit: macros.protein[2] ?? "g",
+    };
   }
   if (macros.carbs) {
-    compiled.carbs = { min: macros.carbs[0], max: macros.carbs[1], unit: "g" };
+    compiled.carbs = {
+      min: macros.carbs[0],
+      max: macros.carbs[1],
+      unit: macros.carbs[2] ?? "g",
+    };
   }
   if (macros.fat) {
-    compiled.fat = { min: macros.fat[0], max: macros.fat[1], unit: "g" };
+    compiled.fat = {
+      min: macros.fat[0],
+      max: macros.fat[1],
+      unit: macros.fat[2] ?? "g",
+    };
   }
 
   return compiled;

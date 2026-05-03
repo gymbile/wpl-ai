@@ -115,6 +115,8 @@ const LEXER_ONLY_KEYWORDS: readonly string[] = [
   "muscles", "pattern",
   // Schema v1.5.0+ sub-plan inclusion
   "subplan",
+  // Schema v1.3.0+ cardio zone-model qualifier
+  "model",
   // Prepositions
   "before", "after", "in",
   // Distance units (not in GRAMMAR)
@@ -141,6 +143,7 @@ const STRUCTURAL_KEYWORDS: readonly string[] = [
   "LANGUAGE", "MIN_APP_VERSION", "SCHEMA",
   "GOALS", "GOAL", "REQUIRES", "PERSONALIZATION", "INPUTS", "RULES", "WHEN",
   "PHASES", "PHASE", "WEEK", "DAY",
+  "ATHLETE_THRESHOLDS",
   "PROGRESS", "NOTIFICATIONS", "RENDERING",
   "AND", "OR",
 ];

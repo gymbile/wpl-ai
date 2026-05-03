@@ -100,6 +100,7 @@ import {
   PHASE_TYPE_SET,
   MUSCLE_GROUP_SET,
   MOVEMENT_PATTERN_SET,
+  INTENSITY_ZONE_MODEL_SET,
 } from "./grammar.js";
 
 // ---------------------------------------------------------------------------
@@ -242,7 +243,7 @@ function parseDocument(state: ParseState): Document | null {
     goals: sections.goals ?? null,
     requirements: sections.requirements ?? null,
     personalization: sections.personalization ?? null,
-    athlete_thresholds: null,
+    athlete_thresholds: sections.athlete_thresholds ?? null,
     phases: sections.phases ?? [],
     progress: sections.progress ?? null,
     notifications: sections.notifications ?? null,
@@ -405,6 +406,7 @@ interface Sections {
   goals?: Goal[];
   requirements?: Requirements;
   personalization?: Personalization;
+  athlete_thresholds?: import("./types.js").AthleteThresholds;
   phases?: Phase[];
   progress?: Progress;
   notifications?: Notification[];
@@ -431,6 +433,9 @@ function parseSections(state: ParseState): Sections {
         break;
       case "PERSONALIZATION":
         sections.personalization = parsePersonalizationSection(state);
+        break;
+      case "ATHLETE_THRESHOLDS":
+        sections.athlete_thresholds = parseAthleteThresholdsSection(state);
         break;
       case "PHASES":
         sections.phases = parsePhasesSection(state);
@@ -936,6 +941,117 @@ function parseTimeCommitment(state: ParseState): TimeCommitment {
       0, 0,
     ],
   };
+}
+
+// ---------------------------------------------------------------------------
+// Athlete Thresholds Section (schema v1.3.0+)
+// ---------------------------------------------------------------------------
+
+function parseAthleteThresholdsSection(
+  state: ParseState,
+): import("./types.js").AthleteThresholds {
+  advance(state); // skip ATHLETE_THRESHOLDS
+  skipNewlines(state);
+
+  const out: import("./types.js").AthleteThresholds = {};
+
+  if (currentToken(state).type !== "indent") {
+    return out;
+  }
+  advance(state);
+
+  const oneRm: import("./types.js").OneRMEntry[] = [];
+
+  for (;;) {
+    skipNewlines(state);
+    const tok = currentToken(state);
+
+    if (tok.type !== "bare_word" && tok.type !== "keyword") break;
+
+    const field = String(tok.value);
+
+    if (field === "one_rm") {
+      advance(state);
+      const exerciseRef = expectBareWord(state);
+      const value = expectNumber(state);
+      const unitTok = currentToken(state);
+      let unit: "kg" | "lb" = "kg";
+      if (unitTok.type === "bare_word" || unitTok.type === "keyword") {
+        const u = String(unitTok.value);
+        if (u === "kg" || u === "lb" || u === "lbs") {
+          unit = u === "lbs" ? "lb" : (u as "kg" | "lb");
+          advance(state);
+        }
+      }
+      oneRm.push({ exercise_ref: exerciseRef, value, unit });
+      continue;
+    }
+
+    // Numeric scalar fields. Schema names them with implied units, so we
+    // accept just a bare number and skip an optional matching unit token
+    // (e.g. "kg", "bpm", "watts", "ml/kg/min") for readability.
+    if (
+      field === "hr_max" ||
+      field === "lthr" ||
+      field === "resting_hr" ||
+      field === "ftp" ||
+      field === "vo2max" ||
+      field === "critical_pace_seconds_per_km" ||
+      field === "body_weight"
+    ) {
+      advance(state);
+      const value = expectNumber(state);
+      // Soak up an optional descriptive unit bareword.
+      const next = currentToken(state);
+      if (next.type === "bare_word" || next.type === "keyword") {
+        const lit = String(next.value);
+        if (
+          lit === "bpm" ||
+          lit === "watts" ||
+          lit === "kg" ||
+          lit === "lbs"
+        ) {
+          advance(state);
+        }
+      }
+
+      switch (field) {
+        case "hr_max":
+          out.hr_max_bpm = Math.trunc(value);
+          break;
+        case "lthr":
+          out.lthr_bpm = Math.trunc(value);
+          break;
+        case "resting_hr":
+          out.resting_hr_bpm = Math.trunc(value);
+          break;
+        case "ftp":
+          out.ftp_watts = value;
+          break;
+        case "vo2max":
+          out.vo2max_ml_kg_min = value;
+          break;
+        case "critical_pace_seconds_per_km":
+          out.critical_pace_seconds_per_km = value;
+          break;
+        case "body_weight":
+          out.body_weight_kg = value;
+          break;
+      }
+      continue;
+    }
+
+    // Unknown field — stop, let outer parser see the token.
+    break;
+  }
+
+  if (currentToken(state).type === "dedent") advance(state);
+
+  if (oneRm.length > 0) {
+    out.one_rm = oneRm;
+  }
+
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -2189,10 +2305,42 @@ function parseWeightSpec(state: ParseState): Weight {
   if (tok.type === "number") {
     const value = tok.value as number;
     advance(state);
-    const unit = expectBareWord(state);
 
-    const type: WeightType =
-      unit === "percentage_1rm" ? "percentage_1rm" : "absolute";
+    // Optional `%` symbol enables `weight 33% bw` / `weight 80% rm` forms.
+    let percentSyntax = false;
+    if (currentToken(state).type === "percent") {
+      percentSyntax = true;
+      advance(state);
+    }
+
+    // Unit token may be a bareword (`kg`, `lbs`, `bw`, `rm`) or one of the
+    // weight-type keywords (`bodyweight`, `percentage_1rm`,
+    // `percentage_bodyweight`) — both classifications surface the value
+    // string we need.
+    const unitTok = currentToken(state);
+    if (unitTok.type !== "bare_word" && unitTok.type !== "keyword") {
+      return expectBareWord(state) as never;
+    }
+    const unit = String(unitTok.value);
+    advance(state);
+
+    let type: WeightType;
+    if (
+      unit === "bw" ||
+      unit === "bodyweight" ||
+      unit === "percentage_bodyweight"
+    ) {
+      type = "percentage_bodyweight";
+    } else if (
+      percentSyntax ||
+      unit === "rm" ||
+      unit === "1rm" ||
+      unit === "percentage_1rm"
+    ) {
+      type = "percentage_1rm";
+    } else {
+      type = "absolute";
+    }
 
     return { type, value, unit, range: makeRange(state, fromOffset) };
   }
@@ -2245,6 +2393,24 @@ function parseCardioActivity(state: ParseState): Cardio {
     ? (cardioTypeStr as CardioType)
     : (GRAMMAR.cardio_type[0] as CardioType);
 
+  // If the source said `zone N model M`, propagate the zone_model so the
+  // compiler can emit `intensity.zone_model` (schema v1.3.0+).
+  let intensity = (attrs.intensity as Intensity | undefined) ?? null;
+  const zoneModel = attrs.zone_model as
+    | import("./types.js").IntensityZoneModel
+    | undefined;
+  if (zoneModel) {
+    intensity = intensity
+      ? { ...intensity, zone_model: zoneModel }
+      : {
+          type: "heart_rate_zone",
+          value: (attrs.zone as number | undefined) ?? null,
+          bounds: null,
+          zone_model: zoneModel,
+          range: makeRange(state, fromOffset),
+        };
+  }
+
   return {
     kind: "cardio",
     modality,
@@ -2254,7 +2420,7 @@ function parseCardioActivity(state: ParseState): Cardio {
       unit: "minutes",
     },
     zone: (attrs.zone as number) ?? null,
-    intensity: (attrs.intensity as Intensity) ?? null,
+    intensity,
     intervals: (attrs.intervals as IntervalPattern) ?? null,
     range: makeRange(state, fromOffset),
   };
@@ -2275,10 +2441,24 @@ function parseCardioBody(
           advance(state);
           attrs.total_duration = parseDuration(state);
           continue;
-        case "zone":
+        case "zone": {
           advance(state);
           attrs.zone = Math.trunc(expectNumber(state));
+          // Optional `model <zone_model>` qualifier (schema v1.3.0+).
+          const next = currentToken(state);
+          if (next.type === "keyword" && next.value === "model") {
+            advance(state);
+            const modelTok = currentToken(state);
+            if (
+              (modelTok.type === "bare_word" || modelTok.type === "keyword") &&
+              INTENSITY_ZONE_MODEL_SET.has(String(modelTok.value))
+            ) {
+              attrs.zone_model = String(modelTok.value);
+              advance(state);
+            }
+          }
           continue;
+        }
         case "intensity":
           advance(state);
           attrs.intensity = parseIntensity(state);
@@ -2405,7 +2585,7 @@ function parseNutritionActivity(state: ParseState): Nutrition {
 
   const attrs = parseNutritionBody(state);
 
-  return {
+  const out: Nutrition = {
     kind: "nutrition",
     category,
     timing: (attrs.timing as NutritionTiming) ?? null,
@@ -2414,6 +2594,10 @@ function parseNutritionActivity(state: ParseState): Nutrition {
     suggestions: (attrs.suggestions as string[]) ?? null,
     range: makeRange(state, fromOffset),
   };
+  if (attrs.calories_unit) {
+    out.calories_unit = attrs.calories_unit as import("./types.js").CalorieUnit;
+  }
+  return out;
 }
 
 function parseNutritionBody(
@@ -2474,7 +2658,27 @@ function parseNutritionBody(
           const min = expectNumber(state);
           expectRange(state);
           const max = expectNumber(state);
-          attrs.calories = [Math.trunc(min), Math.trunc(max)];
+
+          // Optional unit token after the range:
+          //   bareword `kcal` (default), `kcal_per_kg`, or
+          //   `multiplier_of_tdee`. Absent → kcal.
+          let calorieUnit: import("./types.js").CalorieUnit = "kcal";
+          const unitTok = currentToken(state);
+          if (unitTok.type === "bare_word" || unitTok.type === "keyword") {
+            const v = String(unitTok.value);
+            if (v === "kcal" || v === "kcal_per_kg" || v === "multiplier_of_tdee") {
+              calorieUnit = v;
+              advance(state);
+            }
+          }
+
+          // Truncate to integers only for absolute kcal — per-kg and tdee
+          // multipliers are typically fractional.
+          attrs.calories =
+            calorieUnit === "kcal"
+              ? [Math.trunc(min), Math.trunc(max)]
+              : [min, max];
+          attrs.calories_unit = calorieUnit;
           continue;
         }
         case "suggestions":
@@ -2534,35 +2738,50 @@ function parseMacroRange(state: ParseState): MacroRange {
   const min = expectNumber(state);
   expectRange(state);
   const max = expectNumber(state);
+  const unit = consumeMacroUnit(state);
 
-  // Skip "g" unit
-  if (
-    currentToken(state).type === "bare_word" &&
-    currentToken(state).value === "g"
-  ) {
-    advance(state);
-  }
-
-  return [Math.trunc(min), Math.trunc(max)];
+  // Per-kg values are typically fractional (e.g. 1.6 g/kg) — preserve;
+  // absolute grams are conventionally integer, so truncate to match
+  // existing behavior.
+  if (unit === "g_per_kg") return [min, max, unit];
+  return [Math.trunc(min), Math.trunc(max), unit];
 }
 
 function parseFatRange(state: ParseState): MacroRange {
   if (currentToken(state).type === "lte") {
     advance(state);
     const max = expectNumber(state);
+    const unit = consumeMacroUnit(state);
 
-    if (
-      currentToken(state).type === "bare_word" &&
-      currentToken(state).value === "g"
-    ) {
-      advance(state);
-    }
-
+    if (unit === "g_per_kg") return [0, max, unit];
     // For fat with "<=", set min to 0
-    return [0, Math.trunc(max)];
+    return [0, Math.trunc(max), unit];
   }
 
   return parseMacroRange(state);
+}
+
+/**
+ * Consume the optional unit token after a macro range.
+ *   • bareword `g`         → "g" (default)
+ *   • bareword `g_per_kg`  → "g_per_kg"
+ *   • bareword `g/kg`-like → not currently emitted by the lexer (slash is
+ *     not a punctuation token in this grammar); use `g_per_kg` instead.
+ */
+function consumeMacroUnit(state: ParseState): import("./types.js").MacroUnit {
+  const tok = currentToken(state);
+  if (tok.type === "bare_word") {
+    const v = String(tok.value);
+    if (v === "g") {
+      advance(state);
+      return "g";
+    }
+    if (v === "g_per_kg") {
+      advance(state);
+      return "g_per_kg";
+    }
+  }
+  return "g";
 }
 
 function parseSuggestionList(state: ParseState): string[] {

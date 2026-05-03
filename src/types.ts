@@ -442,7 +442,12 @@ export interface NutritionTiming {
   range?: SourceRange;
 }
 
-export type MacroRange = [number, number]; // [min, max]
+export type MacroUnit = "g" | "g_per_kg";
+
+/** [min, max, unit]. Unit defaults to "g" for backwards compatibility. */
+export type MacroRange = [number, number, MacroUnit];
+
+export type CalorieUnit = "kcal" | "kcal_per_kg" | "multiplier_of_tdee";
 
 export interface Macros {
   protein: MacroRange | null;
@@ -457,6 +462,7 @@ export interface Nutrition {
   timing: NutritionTiming | null;
   macros: Macros | null;
   calories: [number, number] | null;
+  calories_unit?: CalorieUnit;
   suggestions: string[] | null;
   range?: SourceRange;
 }

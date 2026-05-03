@@ -15,7 +15,15 @@ export const GRAMMAR = {
   // -- Top-level sections (EBNF §2) --
   sections: {
     required: ["PHASES"],
-    optional: ["GOALS", "REQUIRES", "PERSONALIZATION", "PROGRESS", "NOTIFICATIONS", "RENDERING"],
+    optional: [
+      "GOALS",
+      "REQUIRES",
+      "PERSONALIZATION",
+      "ATHLETE_THRESHOLDS",
+      "PROGRESS",
+      "NOTIFICATIONS",
+      "RENDERING",
+    ],
   },
 
   // -- Goals (EBNF §4) --
@@ -78,6 +86,17 @@ export const GRAMMAR = {
     "gait", "jump", "isolation",
   ],
 
+  // -- Cardio intensity zone model (schema v1.3.0+) --
+  intensity_zone_model: [
+    "hr_3_zone_seiler",
+    "hr_5_zone",
+    "hr_7_zone",
+    "power_coggan_7_zone",
+    "pace_critical_speed",
+    "rpe_borg_10",
+    "rpe_borg_20",
+  ],
+
   // -- Units (EBNF §1.3) --
   unit_time: ["seconds", "minutes", "hours", "days", "weeks"],
   unit_time_short: ["s", "m", "h", "seconds", "minutes", "hours"],
@@ -117,3 +136,4 @@ export const SCHEDULE_FLEX_SET = new Set<string>(GRAMMAR.schedule_flex);
 export const PHASE_TYPE_SET = new Set<string>(GRAMMAR.phase_type);
 export const MUSCLE_GROUP_SET = new Set<string>(GRAMMAR.muscle_group);
 export const MOVEMENT_PATTERN_SET = new Set<string>(GRAMMAR.movement_pattern);
+export const INTENSITY_ZONE_MODEL_SET = new Set<string>(GRAMMAR.intensity_zone_model);

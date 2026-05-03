@@ -7,6 +7,47 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.8.0] — 2026-05-03
+
+### Added — DSL syntax for the per-plan config-style schema features
+
+- **`ATHLETE_THRESHOLDS` top-level section.** Compiles to
+  `plan.athlete_thresholds`. Recognized fields: `hr_max`, `lthr`,
+  `resting_hr`, `ftp`, `vo2max`, `body_weight`, `critical_pace_seconds_per_km`,
+  and one or more `one_rm <exercise_ref> <value> [kg|lbs]` lines.
+  Optional bare unit tokens (`bpm`, `watts`, `kg`, `lbs`) after the
+  numeric value are allowed for human readability and ignored by the
+  compiler — schema field names imply units.
+- **`weight N% bw`** — new percentage-bodyweight syntax compiles to
+  `weight: { type: "percentage_bodyweight", value: N, unit: "bw" }`.
+  The `weight` parser now also recognizes `weight 80% rm` as a tighter
+  spelling of `weight 80 percentage_1rm`. Existing forms unchanged.
+- **`zone N model M`** in a cardio body — propagates to
+  `intensity.zone_model` (schema v1.3.0+). Recognized models match the
+  `intensity_zone_model` enum: `hr_3_zone_seiler`, `hr_5_zone`,
+  `hr_7_zone`, `power_coggan_7_zone`, `pace_critical_speed`,
+  `rpe_borg_10`, `rpe_borg_20`.
+- **Per-kg macros.** `protein 1.6 .. 2.2 g_per_kg` (and the same for
+  `carbs`, `fat`) compiles to `unit: "g_per_kg"`. The default `g` unit
+  remains for backwards compatibility — existing fixtures unchanged.
+- **Calorie units.** `calories 0.95 .. 1.05 multiplier_of_tdee` and
+  `calories 30 .. 35 kcal_per_kg` are now accepted; default remains
+  `kcal`.
+
+### Changed
+- AST: `MacroRange` widened from `[number, number]` to a 3-tuple
+  `[number, number, MacroUnit]` with `MacroUnit = "g" | "g_per_kg"`.
+  `Nutrition` gains optional `calories_unit: CalorieUnit`. The shape
+  is internal to wpl-ai (not part of the public types surface).
+
+### Notes
+With Phase B done, every per-plan or per-line schema feature added in
+v1.2.0–v1.5.0 is reachable from DSL syntax. Plans that used to require
+hand-written JSON for athlete thresholds, body-weight load percentages,
+cardio zone models, or per-kg nutrition are now first-class DSL.
+
+966/966 tests pass.
+
 ## [1.7.0] — 2026-05-03
 
 ### Added — DSL syntax for schema v1.2.0–v1.5.0 features

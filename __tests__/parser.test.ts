@@ -950,9 +950,9 @@ ${nutritionBlock}`);
     expect(act.kind).toBe("nutrition");
     if (act.kind === "nutrition") {
       expect(act.category).toBe("post_workout");
-      expect(act.macros!.protein).toEqual([30, 50]);
-      expect(act.macros!.carbs).toEqual([40, 60]);
-      expect(act.macros!.fat).toEqual([0, 20]);
+      expect(act.macros!.protein).toEqual([30, 50, "g"]);
+      expect(act.macros!.carbs).toEqual([40, 60, "g"]);
+      expect(act.macros!.fat).toEqual([0, 20, "g"]);
     }
   });
 
