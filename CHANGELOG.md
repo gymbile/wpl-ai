@@ -7,6 +7,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.2.0] — 2026-05-03
+
+### Fixed
+- DSL semantic warnings now point at the actual offending source position via AST node ranges. Previously `findInSource` returned the first substring match, so warnings on a vocabulary term that appeared multiple times always pointed at the first occurrence — wrong for any non-trivial plan.
+
+### Added
+- `pointerMap` now resolves sub-fields of activities (prescription, intensity, timing, weight, macros, intervals, recovery exercises, habit prescription) and top-level minor types (notifications, rendering, achievements, streaks). Previously stopped at activity granularity. Enables sub-field precision in the wpl.dev playground's inline diagnostics.
+
+### Changed
+- Lexer keyword set is now sourced from `GRAMMAR` tables instead of a hand-maintained list. No behavior change; eliminates a manual-sync hazard for new enum values.
+
 ## [1.1.2] — 2026-05-02
 
 ### Fixed
