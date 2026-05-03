@@ -305,7 +305,11 @@ export type Activity =
 // single | range | range+target
 export type RepsSpec = number | [number, number] | [number, number, number];
 
-export type WeightType = "bodyweight" | "absolute" | "percentage_1rm";
+export type WeightType =
+  | "bodyweight"
+  | "absolute"
+  | "percentage_1rm"
+  | "percentage_bodyweight";
 
 export interface Weight {
   type: WeightType;

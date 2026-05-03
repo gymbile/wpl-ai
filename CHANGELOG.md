@@ -7,6 +7,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.5.0] — 2026-05-03
+
+### Added
+- `WeightType` widened to include `"percentage_bodyweight"` (matches schema v1.4.0).
+
+### Notes
+Schema v1.4.0's macro/calorie unit additions (`g_per_kg`, `kcal_per_kg`, `multiplier_of_tdee`) are accepted by the schema but require DSL grammar work to produce — deferred to a future release. ASTs that pass these fields through directly compile cleanly today. 957/957 tests pass.
+
 ## [1.4.0] — 2026-05-03
 
 ### Added
