@@ -7,6 +7,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.3.0] — 2026-05-03
+
+### Added
+- AST type `PhaseType` (`accumulation | intensification | realization | deload | base | build | peak | recovery | transition`) and corresponding `Phase.type` field. Compiler emits this when set.
+- `Week.is_deload` boolean on the AST. Compiler emits when true.
+- `StructuredTempo` AST type (`eccentric`, `pause_bottom`, `concentric`, `pause_top`, `explosive_concentric`). `Exercise.tempo` widened from `string | null` to `Tempo | null` where `Tempo = string | StructuredTempo`. Both forms pass through the compiler unchanged.
+
+### Notes
+Targets schema v1.2.0. Backwards compatible: existing AST consumers that don't set the new fields produce identical compiled JSON.
+
 ## [1.2.0] — 2026-05-03
 
 ### Fixed

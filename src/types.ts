@@ -213,8 +213,20 @@ export interface Personalization {
 // Phases structure
 // ---------------------------------------------------------------------------
 
+export type PhaseType =
+  | "accumulation"
+  | "intensification"
+  | "realization"
+  | "deload"
+  | "base"
+  | "build"
+  | "peak"
+  | "recovery"
+  | "transition";
+
 export interface Phase {
   name: string;
+  type: PhaseType | null;
   duration: Duration;
   goals: string[] | null;
   description: string | null;
@@ -225,6 +237,7 @@ export interface Phase {
 export interface Week {
   number: number;
   name: string | null;
+  is_deload: boolean | null;
   days: Day[];
   range?: SourceRange;
 }
@@ -301,6 +314,22 @@ export interface Weight {
   range?: SourceRange;
 }
 
+/**
+ * Lifting tempo. Either the conventional 4-digit string ("3-1-1-0", "30X1")
+ * or a structured object that consuming tools can compute time-under-tension
+ * from. The string form is preserved for human authoring.
+ */
+export type Tempo = string | StructuredTempo;
+
+export interface StructuredTempo {
+  eccentric: number;
+  pause_bottom?: number;
+  concentric: number;
+  pause_top?: number;
+  /** True = X in conventional notation: explosive/intent-maximal concentric. */
+  explosive_concentric?: boolean;
+}
+
 export interface Exercise {
   kind: "exercise";
   exercise_ref: string;
@@ -309,7 +338,7 @@ export interface Exercise {
   reps: RepsSpec;
   rpe: number | null;
   rir: number | null;
-  tempo: string | null;
+  tempo: Tempo | null;
   rest: Duration | null;
   weight: Weight | null;
   range?: SourceRange;

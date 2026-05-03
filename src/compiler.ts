@@ -452,6 +452,9 @@ function compilePhase(
     order: index,
   };
 
+  if (phase.type) {
+    compiled.type = phase.type;
+  }
   if (phase.description) {
     compiled.description = phase.description;
   }
@@ -483,6 +486,10 @@ function compileWeek(week: Week, ctx: CompileContext): Record<string, unknown> {
     name: week.name ?? `Week ${week.number}`,
     order: week.number,
   };
+
+  if (week.is_deload === true) {
+    compiled.is_deload = true;
+  }
 
   if (week.days && week.days.length > 0) {
     compiled.days = ctx.withSegment("days", undefined, () =>
