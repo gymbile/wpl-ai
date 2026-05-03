@@ -576,6 +576,7 @@ function parseGoalBody(state: ParseState): Record<string, unknown> {
 }
 
 function parseTarget(state: ParseState): Target {
+  const fromOffset = currentOffset(state);
   const metric = expectBareWord(state);
   const value = expectNumber(state);
   const unit = expectBareWord(state);
@@ -587,10 +588,17 @@ function parseTarget(state: ParseState): Target {
     advance(state);
   }
 
-  return { metric, value, unit, measurement_type: measurementType };
+  return {
+    metric,
+    value,
+    unit,
+    measurement_type: measurementType,
+    range: makeRange(state, fromOffset),
+  };
 }
 
 function parseMilestone(state: ParseState): Milestone {
+  const fromOffset = currentOffset(state);
   advance(state); // skip "milestone"
   const name = expectString(state);
   expectColon(state);
@@ -608,6 +616,7 @@ function parseMilestone(state: ParseState): Milestone {
     at_unit: (attrs.at_unit as string) ?? "",
     reward_points: (attrs.reward_points as number) ?? null,
     badge: (attrs.badge as string) ?? null,
+    range: makeRange(state, fromOffset),
   };
 }
 
@@ -768,6 +777,7 @@ function parseEquipmentList(state: ParseState): Equipment[] {
     const tok = currentToken(state);
 
     if (tok.type === "bare_word") {
+      const fromOffset = currentOffset(state);
       const name = tok.value as string;
       advance(state);
       const flags = parseEquipmentFlags(state);
@@ -776,6 +786,7 @@ function parseEquipmentList(state: ParseState): Equipment[] {
         name,
         required: (flags.required as boolean) ?? false,
         alternatives: (flags.alternatives as string[]) ?? null,
+        range: makeRange(state, fromOffset),
       });
     } else if (tok.type === "dedent") {
       advance(state);
@@ -2056,11 +2067,12 @@ function parseTempo(state: ParseState): string {
 }
 
 function parseWeightSpec(state: ParseState): Weight {
+  const fromOffset = currentOffset(state);
   const tok = currentToken(state);
 
   if (tok.type === "keyword" && tok.value === "bodyweight") {
     advance(state);
-    return { type: "bodyweight", value: null, unit: null };
+    return { type: "bodyweight", value: null, unit: null, range: makeRange(state, fromOffset) };
   }
 
   if (tok.type === "number") {
@@ -2071,10 +2083,10 @@ function parseWeightSpec(state: ParseState): Weight {
     const type: WeightType =
       unit === "percentage_1rm" ? "percentage_1rm" : "absolute";
 
-    return { type, value, unit };
+    return { type, value, unit, range: makeRange(state, fromOffset) };
   }
 
-  return { type: "bodyweight", value: null, unit: null };
+  return { type: "bodyweight", value: null, unit: null, range: makeRange(state, fromOffset) };
 }
 
 function parseOptionalInlineDuration(
@@ -2183,6 +2195,7 @@ function parseCardioBody(
 }
 
 function parseIntensity(state: ParseState): Intensity | null {
+  const fromOffset = currentOffset(state);
   const tok = currentToken(state);
 
   if (tok.type !== "keyword") return null;
@@ -2191,12 +2204,12 @@ function parseIntensity(state: ParseState): Intensity | null {
     case "rpe": {
       advance(state);
       const value = expectNumber(state);
-      return { type: "rpe", value, bounds: null };
+      return { type: "rpe", value, bounds: null, range: makeRange(state, fromOffset) };
     }
     case "heart_rate_zone": {
       advance(state);
       const value = Math.trunc(expectNumber(state));
-      return { type: "heart_rate_zone", value, bounds: null };
+      return { type: "heart_rate_zone", value, bounds: null, range: makeRange(state, fromOffset) };
     }
     case "bpm": {
       advance(state);
@@ -2207,12 +2220,13 @@ function parseIntensity(state: ParseState): Intensity | null {
         type: "bpm",
         value: null,
         bounds: [Math.trunc(min), Math.trunc(max)],
+        range: makeRange(state, fromOffset),
       };
     }
     case "pace": {
       advance(state);
       const pace = expectString(state);
-      return { type: "pace", value: pace, bounds: null };
+      return { type: "pace", value: pace, bounds: null, range: makeRange(state, fromOffset) };
     }
     default:
       return null;
@@ -2220,6 +2234,7 @@ function parseIntensity(state: ParseState): Intensity | null {
 }
 
 function parseIntervalPattern(state: ParseState): IntervalPattern {
+  const fromOffset = currentOffset(state);
   const work = expectNumber(state);
 
   // Expect 's' for seconds
@@ -2258,6 +2273,7 @@ function parseIntervalPattern(state: ParseState): IntervalPattern {
     work_seconds: Math.trunc(work),
     rest_seconds: Math.trunc(restSeconds),
     repeats: Math.trunc(repeats),
+    range: makeRange(state, fromOffset),
   };
 }
 
@@ -2293,6 +2309,17 @@ function parseNutritionBody(
   state: ParseState,
 ): Record<string, unknown> {
   const attrs: Record<string, unknown> = {};
+  let macrosFromOffset = -1;
+
+  const ensureMacros = (fromOffset: number): Macros => {
+    let macros = attrs.macros as Macros | undefined;
+    if (!macros) {
+      macrosFromOffset = fromOffset;
+      macros = { protein: null, carbs: null, fat: null };
+      attrs.macros = macros;
+    }
+    return macros;
+  };
 
   for (;;) {
     skipNewlines(state);
@@ -2305,39 +2332,30 @@ function parseNutritionBody(
           attrs.timing = parseNutritionTiming(state);
           continue;
         case "protein": {
+          const fromOffset = currentOffset(state);
           advance(state);
           const range = parseMacroRange(state);
-          const macros: Macros = (attrs.macros as Macros) ?? {
-            protein: null,
-            carbs: null,
-            fat: null,
-          };
+          const macros = ensureMacros(fromOffset);
           macros.protein = range;
-          attrs.macros = macros;
+          macros.range = makeRange(state, macrosFromOffset);
           continue;
         }
         case "carbs": {
+          const fromOffset = currentOffset(state);
           advance(state);
           const range = parseMacroRange(state);
-          const macros: Macros = (attrs.macros as Macros) ?? {
-            protein: null,
-            carbs: null,
-            fat: null,
-          };
+          const macros = ensureMacros(fromOffset);
           macros.carbs = range;
-          attrs.macros = macros;
+          macros.range = makeRange(state, macrosFromOffset);
           continue;
         }
         case "fat": {
+          const fromOffset = currentOffset(state);
           advance(state);
           const range = parseFatRange(state);
-          const macros: Macros = (attrs.macros as Macros) ?? {
-            protein: null,
-            carbs: null,
-            fat: null,
-          };
+          const macros = ensureMacros(fromOffset);
           macros.fat = range;
-          attrs.macros = macros;
+          macros.range = makeRange(state, macrosFromOffset);
           continue;
         }
         case "calories": {
@@ -2374,6 +2392,7 @@ function parseNutritionBody(
 function parseNutritionTiming(
   state: ParseState,
 ): NutritionTiming | null {
+  const fromOffset = currentOffset(state);
   const tok = currentToken(state);
   if (tok.type !== "keyword") return null;
 
@@ -2382,18 +2401,18 @@ function parseNutritionTiming(
       advance(state);
       expectPlus(state);
       const duration = parseDuration(state);
-      return { type: "after_workout", duration, time: null };
+      return { type: "after_workout", duration, time: null, range: makeRange(state, fromOffset) };
     }
     case "before_workout": {
       advance(state);
       expectMinus(state);
       const duration = parseDuration(state);
-      return { type: "before_workout", duration, time: null };
+      return { type: "before_workout", duration, time: null, range: makeRange(state, fromOffset) };
     }
     case "at": {
       advance(state);
       const time = expectTime(state);
-      return { type: "at_time", duration: null, time };
+      return { type: "at_time", duration: null, time, range: makeRange(state, fromOffset) };
     }
     default:
       return null;
@@ -2583,6 +2602,7 @@ function parseRecoveryBody(state: ParseState): {
 }
 
 function parseRecoveryExercise(state: ParseState): RecoveryExercise {
+  const fromOffset = currentOffset(state);
   const name = expectBareWord(state);
   const hold = expectNumber(state);
 
@@ -2622,6 +2642,7 @@ function parseRecoveryExercise(state: ParseState): RecoveryExercise {
     hold_seconds: Math.trunc(hold),
     reps: Math.trunc(reps),
     sides,
+    range: makeRange(state, fromOffset),
   };
 }
 
@@ -2788,10 +2809,15 @@ function parseProgressBody(
           attrs.achievements = parseAchievements(state);
           continue;
         case "streaks": {
+          const fromOffset = currentOffset(state);
           advance(state);
           const enabled = expectEnabledDisabled(state);
           const types = parseStreaksTypes(state);
-          attrs.streaks = { enabled, types } as StreaksConfig;
+          attrs.streaks = {
+            enabled,
+            types,
+            range: makeRange(state, fromOffset),
+          } as StreaksConfig;
           continue;
         }
         default:
@@ -3034,6 +3060,7 @@ function parseAchievements(state: ParseState): Achievement[] {
 }
 
 function parseAchievement(state: ParseState): Achievement {
+  const fromOffset = currentOffset(state);
   advance(state); // skip "achievement"
   const id = expectBareWord(state);
   expectColon(state);
@@ -3048,6 +3075,7 @@ function parseAchievement(state: ParseState): Achievement {
     condition: (attrs.condition as string) ?? "",
     condition_value: (attrs.condition_value as number) ?? 0,
     points: (attrs.points as number) ?? 0,
+    range: makeRange(state, fromOffset),
   };
 }
 
@@ -3162,6 +3190,7 @@ function parseNotifications(state: ParseState): Notification[] {
 }
 
 function parseNotification(state: ParseState): Notification {
+  const fromOffset = currentOffset(state);
   const id = expectBareWord(state);
   expectColon(state);
   skipNewlines(state);
@@ -3173,6 +3202,7 @@ function parseNotification(state: ParseState): Notification {
     enabled: (attrs.enabled as boolean) ?? false,
     timing: (attrs.timing as { duration: Duration; relative_to: string }) ?? null,
     message: (attrs.message as string) ?? "",
+    range: makeRange(state, fromOffset),
   };
 }
 
@@ -3224,6 +3254,7 @@ function parseNotificationBody(
 // ---------------------------------------------------------------------------
 
 function parseRenderingSection(state: ParseState): Rendering {
+  const fromOffset = currentOffset(state);
   advance(state); // skip RENDERING
   skipNewlines(state);
 
@@ -3238,6 +3269,7 @@ function parseRenderingSection(state: ParseState): Rendering {
       icons: (attrs.icons as Record<string, string>) ?? null,
       difficulty_colors:
         (attrs.difficulty_colors as Record<string, string>) ?? null,
+      range: makeRange(state, fromOffset),
     };
   }
 
@@ -3247,6 +3279,7 @@ function parseRenderingSection(state: ParseState): Rendering {
     accent_color: null,
     icons: null,
     difficulty_colors: null,
+    range: makeRange(state, fromOffset),
   };
 }
 

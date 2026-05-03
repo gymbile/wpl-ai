@@ -302,6 +302,199 @@ PROGRESS
   // Sanity: ranges fall within source bounds
   // -------------------------------------------------------------------------
 
+  // -------------------------------------------------------------------------
+  // Activity sub-fields (Refactor C)
+  // -------------------------------------------------------------------------
+
+  it("maps exercise prescription sub-segment", () => {
+    const source = `\
+PLAN "Plan"
+TYPE workout
+
+PHASES
+  PHASE "P" (1 weeks):
+    WEEK 1:
+      DAY Monday training 30m:
+        main:
+          bench_press 5x5 weight 80 kg
+`;
+    const result = ok(source);
+    const r = result.pointerMap.get(
+      "/plan/phases/0/weeks/0/days/0/blocks/0/activities/0/prescription",
+    );
+    expect(r).toBeDefined();
+    expect(source.slice(r!.from, r!.to)).toContain("bench_press");
+  });
+
+  it("maps exercise weight sub-segment", () => {
+    const source = `\
+PLAN "Plan"
+TYPE workout
+
+PHASES
+  PHASE "P" (1 weeks):
+    WEEK 1:
+      DAY Monday training 30m:
+        main:
+          bench_press 5x5 weight 80 kg
+`;
+    const result = ok(source);
+    const r = result.pointerMap.get(
+      "/plan/phases/0/weeks/0/days/0/blocks/0/activities/0/prescription/weight",
+    );
+    expect(r).toBeDefined();
+    expect(source.slice(r!.from, r!.to)).toContain("80 kg");
+  });
+
+  it("maps cardio intensity sub-segment", () => {
+    const source = `\
+PLAN "Plan"
+TYPE workout
+
+PHASES
+  PHASE "P" (1 weeks):
+    WEEK 1:
+      DAY Monday training 30m:
+        main:
+          cardio running continuous:
+            total 20 minutes
+            intensity rpe 7
+`;
+    const result = ok(source);
+    const r = result.pointerMap.get(
+      "/plan/phases/0/weeks/0/days/0/blocks/0/activities/0/intensity",
+    );
+    expect(r).toBeDefined();
+    expect(source.slice(r!.from, r!.to)).toContain("rpe 7");
+  });
+
+  it("maps cardio intervals sub-segment", () => {
+    const source = `\
+PLAN "Plan"
+TYPE workout
+
+PHASES
+  PHASE "P" (1 weeks):
+    WEEK 1:
+      DAY Monday training 30m:
+        main:
+          cardio running intervals:
+            total 20 minutes
+            30s work / 30 rest x 5
+`;
+    const result = ok(source);
+    const r = result.pointerMap.get(
+      "/plan/phases/0/weeks/0/days/0/blocks/0/activities/0/prescription/intervals",
+    );
+    expect(r).toBeDefined();
+    expect(source.slice(r!.from, r!.to)).toContain("work");
+  });
+
+  it("maps nutrition timing sub-segment", () => {
+    const source = `\
+PLAN "Plan"
+TYPE nutrition
+
+PHASES
+  PHASE "P" (1 weeks):
+    WEEK 1:
+      DAY Monday training 30m:
+        nutrition:
+          nutrition meal:
+            timing at 08:00
+`;
+    const result = ok(source);
+    const r = result.pointerMap.get(
+      "/plan/phases/0/weeks/0/days/0/blocks/0/activities/0/timing",
+    );
+    expect(r).toBeDefined();
+    expect(source.slice(r!.from, r!.to)).toContain("at 08:00");
+  });
+
+  it("maps nutrition macros sub-segment", () => {
+    const source = `\
+PLAN "Plan"
+TYPE nutrition
+
+PHASES
+  PHASE "P" (1 weeks):
+    WEEK 1:
+      DAY Monday training 30m:
+        nutrition:
+          nutrition meal:
+            protein 30..40
+            carbs 50..70
+`;
+    const result = ok(source);
+    const r = result.pointerMap.get(
+      "/plan/phases/0/weeks/0/days/0/blocks/0/activities/0/prescription/macros",
+    );
+    expect(r).toBeDefined();
+    expect(source.slice(r!.from, r!.to)).toContain("protein");
+  });
+
+  it("maps recovery exercise sub-segments", () => {
+    const source = `\
+PLAN "Plan"
+TYPE workout
+
+PHASES
+  PHASE "P" (1 weeks):
+    WEEK 1:
+      DAY Monday training 30m:
+        cooldown:
+          chest_stretch 30s x 2 sides both
+`;
+    const result = ok(source);
+    const r = result.pointerMap.get(
+      "/plan/phases/0/weeks/0/days/0/blocks/0/activities/0/prescription/exercises/0",
+    );
+    expect(r).toBeDefined();
+    expect(source.slice(r!.from, r!.to)).toContain("chest_stretch");
+  });
+
+  it("maps habit prescription sub-segment", () => {
+    const source = `\
+PLAN "Plan"
+TYPE hybrid
+
+PHASES
+  PHASE "P" (1 weeks):
+    WEEK 1:
+      DAY Monday training 30m:
+        main:
+          habit hydration:
+            target 8 glasses
+            frequency daily
+`;
+    const result = ok(source);
+    const r = result.pointerMap.get(
+      "/plan/phases/0/weeks/0/days/0/blocks/0/activities/0/prescription",
+    );
+    expect(r).toBeDefined();
+    expect(source.slice(r!.from, r!.to)).toContain("habit hydration");
+  });
+
+  // -------------------------------------------------------------------------
+  // Top-level minor types (notifications)
+  // -------------------------------------------------------------------------
+
+  it("maps notification entries", () => {
+    const source = `\
+PLAN "Plan"
+TYPE workout
+
+NOTIFICATIONS
+  workout_reminder:
+    enabled true
+    message "Time to work out!"
+`;
+    const result = ok(source);
+    const r = result.pointerMap.get("/plan/notifications/0");
+    expect(r).toBeDefined();
+    expect(source.slice(r!.from, r!.to)).toContain("workout_reminder");
+  });
+
   it("all pointer ranges fall within source bounds and are non-empty", () => {
     const source = `\
 PLAN "Plan"

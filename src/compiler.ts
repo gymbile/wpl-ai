@@ -159,8 +159,16 @@ function compileDocument(doc: Document, ctx: CompileContext): Record<string, unk
     progress: ctx.withSegment("progress", doc.progress ?? undefined, () =>
       compileProgress(doc.progress, ctx),
     ),
-    notifications: compileNotifications(doc.notifications),
+    notifications: ctx.withSegment("notifications", undefined, () =>
+      compileNotifications(doc.notifications, ctx),
+    ),
   };
+
+  // Register a pointer for the rendering section even though the compiler
+  // doesn't currently emit it into the JSON output. Useful for diagnostics.
+  if (doc.rendering) {
+    ctx.withSegment("rendering", doc.rendering, () => null);
+  }
 
   return compact(plan);
 }
@@ -557,7 +565,7 @@ function compileBlock(
   if (block.activities && block.activities.length > 0) {
     compiled.activities = ctx.withSegment("activities", undefined, () =>
       block.activities.map((act, i) =>
-        ctx.withSegment(i, act, () => compileActivity(act, i + 1)),
+        ctx.withSegment(i, act, () => compileActivity(act, i + 1, ctx)),
       ),
     );
   }
@@ -569,20 +577,24 @@ function compileBlock(
 // Activities (dispatch on kind)
 // ---------------------------------------------------------------------------
 
-function compileActivity(activity: Activity, index: number): Record<string, unknown> {
+function compileActivity(
+  activity: Activity,
+  index: number,
+  ctx: CompileContext,
+): Record<string, unknown> {
   switch (activity.kind) {
     case "exercise":
-      return compileExercise(activity, index);
+      return compileExercise(activity, index, ctx);
     case "cardio":
-      return compileCardio(activity, index);
+      return compileCardio(activity, index, ctx);
     case "nutrition":
-      return compileNutrition(activity, index);
+      return compileNutrition(activity, index, ctx);
     case "meditation":
-      return compileMeditation(activity, index);
+      return compileMeditation(activity, index, ctx);
     case "recovery":
-      return compileRecovery(activity, index);
+      return compileRecovery(activity, index, ctx);
     case "habit":
-      return compileHabit(activity, index);
+      return compileHabit(activity, index, ctx);
     case "simple":
       return compileSimpleActivity(activity, index);
   }
@@ -592,7 +604,11 @@ function compileActivity(activity: Activity, index: number): Record<string, unkn
 // Exercise
 // ---------------------------------------------------------------------------
 
-function compileExercise(ex: Exercise, index: number): Record<string, unknown> {
+function compileExercise(
+  ex: Exercise,
+  index: number,
+  ctx: CompileContext,
+): Record<string, unknown> {
   const compiled: Record<string, unknown> = {
     id: `exercise_${index}`,
     type: "exercise",
@@ -600,27 +616,32 @@ function compileExercise(ex: Exercise, index: number): Record<string, unknown> {
     name: ex.name ?? humanise(ex.exercise_ref),
   };
 
-  // Build prescription
-  const prescription: Record<string, unknown> = {};
+  // Build prescription. The prescription is a synthetic group (no AST node
+  // of its own); the activity's range covers it. Register the segment so
+  // sub-pointers like prescription/weight resolve.
+  const prescription = ctx.withSegment("prescription", ex, () => {
+    const p: Record<string, unknown> = {};
 
-  if (ex.sets != null) {
-    prescription.sets = ex.sets;
-  }
+    if (ex.sets != null) {
+      p.sets = ex.sets;
+    }
 
-  const reps = compileReps(ex.reps);
-  if (reps) {
-    prescription.reps = reps;
-  }
+    const reps = compileReps(ex.reps);
+    if (reps) {
+      p.reps = reps;
+    }
 
-  if (ex.rest) {
-    prescription.rest = compileDuration(ex.rest);
-  }
-  if (ex.tempo) {
-    prescription.tempo = ex.tempo;
-  }
-  if (ex.weight) {
-    prescription.weight = compileWeight(ex.weight);
-  }
+    if (ex.rest) {
+      p.rest = compileDuration(ex.rest);
+    }
+    if (ex.tempo) {
+      p.tempo = ex.tempo;
+    }
+    if (ex.weight) {
+      p.weight = ctx.withSegment("weight", ex.weight, () => compileWeight(ex.weight!));
+    }
+    return p;
+  });
 
   if (Object.keys(prescription).length > 0) {
     // Infer prescription.type per the canonical Elixir validator heuristic:
@@ -670,7 +691,11 @@ function compileReps(reps: RepsSpec | null | undefined): Record<string, unknown>
 // Cardio
 // ---------------------------------------------------------------------------
 
-function compileCardio(cardio: Cardio, index: number): Record<string, unknown> {
+function compileCardio(
+  cardio: Cardio,
+  index: number,
+  ctx: CompileContext,
+): Record<string, unknown> {
   const compiled: Record<string, unknown> = {
     id: `cardio_${index}`,
     type: "cardio",
@@ -678,21 +703,29 @@ function compileCardio(cardio: Cardio, index: number): Record<string, unknown> {
     modality: cardio.modality,
   };
 
-  const prescription: Record<string, unknown> = {
-    type: cardio.cardio_type ?? "continuous",
-  };
+  compiled.prescription = ctx.withSegment("prescription", cardio, () => {
+    const p: Record<string, unknown> = { type: cardio.cardio_type ?? "continuous" };
 
-  if (cardio.total_duration) {
-    prescription.duration = compileDuration(cardio.total_duration);
-  }
-  if (cardio.zone != null) {
-    prescription.intensity = { type: "heart_rate_zone", zone: cardio.zone };
-  }
-  if (cardio.intervals) {
-    prescription.intervals = compileIntervals(cardio.intervals);
+    if (cardio.total_duration) {
+      p.duration = compileDuration(cardio.total_duration);
+    }
+    if (cardio.zone != null) {
+      p.intensity = { type: "heart_rate_zone", zone: cardio.zone };
+    }
+    if (cardio.intervals) {
+      p.intervals = ctx.withSegment("intervals", cardio.intervals, () =>
+        compileIntervals(cardio.intervals!),
+      );
+    }
+    return p;
+  });
+
+  // Standalone intensity (rpe/heart_rate_zone/bpm/pace) sits outside the
+  // prescription block. Register it under the activity's pointer.
+  if (cardio.intensity) {
+    ctx.withSegment("intensity", cardio.intensity, () => null);
   }
 
-  compiled.prescription = prescription;
   return compiled;
 }
 
@@ -700,7 +733,11 @@ function compileCardio(cardio: Cardio, index: number): Record<string, unknown> {
 // Nutrition
 // ---------------------------------------------------------------------------
 
-function compileNutrition(nutrition: Nutrition, index: number): Record<string, unknown> {
+function compileNutrition(
+  nutrition: Nutrition,
+  index: number,
+  ctx: CompileContext,
+): Record<string, unknown> {
   const compiled: Record<string, unknown> = {
     id: `nutrition_${index}`,
     type: "nutrition",
@@ -708,24 +745,30 @@ function compileNutrition(nutrition: Nutrition, index: number): Record<string, u
     category: nutrition.category,
   };
 
-  const prescription: Record<string, unknown> = {};
-
-  if (nutrition.macros) {
-    prescription.macros = compileMacros(nutrition.macros);
-  }
-  if (nutrition.calories) {
-    prescription.calories = { min: nutrition.calories[0], max: nutrition.calories[1] };
-  }
-  if (nutrition.suggestions && nutrition.suggestions.length > 0) {
-    prescription.suggestions = nutrition.suggestions;
-  }
+  const prescription = ctx.withSegment("prescription", nutrition, () => {
+    const p: Record<string, unknown> = {};
+    if (nutrition.macros) {
+      p.macros = ctx.withSegment("macros", nutrition.macros, () =>
+        compileMacros(nutrition.macros!),
+      );
+    }
+    if (nutrition.calories) {
+      p.calories = { min: nutrition.calories[0], max: nutrition.calories[1] };
+    }
+    if (nutrition.suggestions && nutrition.suggestions.length > 0) {
+      p.suggestions = nutrition.suggestions;
+    }
+    return p;
+  });
 
   if (Object.keys(prescription).length > 0) {
     compiled.prescription = prescription;
   }
 
   if (nutrition.timing) {
-    compiled.timing = compileTiming(nutrition.timing);
+    compiled.timing = ctx.withSegment("timing", nutrition.timing, () =>
+      compileTiming(nutrition.timing!),
+    );
   }
 
   return compiled;
@@ -735,7 +778,11 @@ function compileNutrition(nutrition: Nutrition, index: number): Record<string, u
 // Meditation
 // ---------------------------------------------------------------------------
 
-function compileMeditation(meditation: Meditation, index: number): Record<string, unknown> {
+function compileMeditation(
+  meditation: Meditation,
+  index: number,
+  ctx: CompileContext,
+): Record<string, unknown> {
   const compiled: Record<string, unknown> = {
     id: `meditation_${index}`,
     type: "meditation",
@@ -743,14 +790,16 @@ function compileMeditation(meditation: Meditation, index: number): Record<string
     category: meditation.category,
   };
 
-  const prescription: Record<string, unknown> = {};
-
-  if (meditation.duration) {
-    prescription.duration = compileDuration(meditation.duration);
-  }
-  if (meditation.guided != null) {
-    prescription.guided = meditation.guided;
-  }
+  const prescription = ctx.withSegment("prescription", meditation, () => {
+    const p: Record<string, unknown> = {};
+    if (meditation.duration) {
+      p.duration = compileDuration(meditation.duration);
+    }
+    if (meditation.guided != null) {
+      p.guided = meditation.guided;
+    }
+    return p;
+  });
 
   if (Object.keys(prescription).length > 0) {
     compiled.prescription = prescription;
@@ -763,7 +812,11 @@ function compileMeditation(meditation: Meditation, index: number): Record<string
 // Recovery
 // ---------------------------------------------------------------------------
 
-function compileRecovery(recovery: Recovery, index: number): Record<string, unknown> {
+function compileRecovery(
+  recovery: Recovery,
+  index: number,
+  ctx: CompileContext,
+): Record<string, unknown> {
   // The parser wraps cooldown stretches as Recovery activities with
   // category: "cooldown" and a placeholder duration of {value: 0, unit: "minutes"}.
   // Schema-wise the canonical category for stretches is "stretching", so
@@ -780,19 +833,24 @@ function compileRecovery(recovery: Recovery, index: number): Record<string, unkn
     category,
   };
 
-  const prescription: Record<string, unknown> = {};
+  const prescription = ctx.withSegment("prescription", recovery, () => {
+    const p: Record<string, unknown> = {};
 
-  // Drop placeholder zero-duration entries (parser default for synthesised
-  // cooldown wrappers). Only emit real duration values.
-  if (recovery.duration && recovery.duration.value > 0) {
-    prescription.duration = compileDuration(recovery.duration);
-  }
+    // Drop placeholder zero-duration entries (parser default for synthesised
+    // cooldown wrappers). Only emit real duration values.
+    if (recovery.duration && recovery.duration.value > 0) {
+      p.duration = compileDuration(recovery.duration);
+    }
 
-  if (recovery.exercises && recovery.exercises.length > 0) {
-    prescription.exercises = recovery.exercises.map((ex, i) =>
-      compileRecoveryExercise(ex, i + 1),
-    );
-  }
+    if (recovery.exercises && recovery.exercises.length > 0) {
+      p.exercises = ctx.withSegment("exercises", undefined, () =>
+        recovery.exercises!.map((ex, i) =>
+          ctx.withSegment(i, ex, () => compileRecoveryExercise(ex, i + 1)),
+        ),
+      );
+    }
+    return p;
+  });
 
   if (Object.keys(prescription).length > 0) {
     compiled.prescription = prescription;
@@ -828,7 +886,11 @@ function compileRecoveryExercise(
 // Habit
 // ---------------------------------------------------------------------------
 
-function compileHabit(habit: Habit, index: number): Record<string, unknown> {
+function compileHabit(
+  habit: Habit,
+  index: number,
+  ctx: CompileContext,
+): Record<string, unknown> {
   const compiled: Record<string, unknown> = {
     id: `habit_${index}`,
     type: "habit",
@@ -836,21 +898,23 @@ function compileHabit(habit: Habit, index: number): Record<string, unknown> {
     category: habit.category,
   };
 
-  const prescription: Record<string, unknown> = {};
-
-  if (habit.target != null) {
-    const target: Record<string, unknown> = { value: habit.target };
-    if (habit.target_unit) {
-      target.unit = habit.target_unit;
+  const prescription = ctx.withSegment("prescription", habit, () => {
+    const p: Record<string, unknown> = {};
+    if (habit.target != null) {
+      const target: Record<string, unknown> = { value: habit.target };
+      if (habit.target_unit) {
+        target.unit = habit.target_unit;
+      }
+      p.target = target;
     }
-    prescription.target = target;
-  }
-  if (habit.frequency) {
-    prescription.frequency = habit.frequency;
-  }
-  if (habit.reminders && habit.reminders.length > 0) {
-    prescription.reminder_times = habit.reminders;
-  }
+    if (habit.frequency) {
+      p.frequency = habit.frequency;
+    }
+    if (habit.reminders && habit.reminders.length > 0) {
+      p.reminder_times = habit.reminders;
+    }
+    return p;
+  });
 
   if (Object.keys(prescription).length > 0) {
     compiled.prescription = prescription;
@@ -920,6 +984,20 @@ function compileProgress(
     );
   }
 
+  // Register pointers for achievements and streaks even though the compiler
+  // doesn't currently emit them into the JSON output. Useful for diagnostics.
+  if (progress.achievements && progress.achievements.length > 0) {
+    ctx.withSegment("achievements", undefined, () => {
+      progress.achievements!.forEach((ach, i) =>
+        ctx.withSegment(i, ach, () => null),
+      );
+      return null;
+    });
+  }
+  if (progress.streaks) {
+    ctx.withSegment("streaks", progress.streaks, () => null);
+  }
+
   return Object.keys(compiled).length === 0 ? null : compiled;
 }
 
@@ -972,9 +1050,12 @@ function compilePointsConfig(
 
 function compileNotifications(
   notifications: Notification[] | null | undefined,
+  ctx: CompileContext,
 ): Record<string, unknown>[] | null {
   if (!notifications || notifications.length === 0) return null;
-  return notifications.map(compileNotification);
+  return notifications.map((notif, i) =>
+    ctx.withSegment(i, notif, () => compileNotification(notif)),
+  );
 }
 
 function compileNotification(notif: Notification): Record<string, unknown> {

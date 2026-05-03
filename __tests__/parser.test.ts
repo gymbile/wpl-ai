@@ -788,7 +788,7 @@ PHASES
     expect(ex.rpe).toBe(8);
     expect(ex.rir).toBe(2);
     expect(ex.rest).toEqual({ value: 90, unit: "seconds" });
-    expect(ex.weight).toEqual({ type: "absolute", value: 80, unit: "kg" });
+    expect(ex.weight).toMatchObject({ type: "absolute", value: 80, unit: "kg" });
   });
 
   it("parses exercise with bodyweight", () => {
@@ -797,7 +797,7 @@ PHASES
     expect(ex.exercise_ref).toBe("pull_up");
     expect(ex.sets).toBe(3);
     expect(ex.reps).toBe(5);
-    expect(ex.weight).toEqual({ type: "bodyweight", value: null, unit: null });
+    expect(ex.weight).toMatchObject({ type: "bodyweight", value: null, unit: null });
   });
 
   it("parses exercise with simple rep count", () => {
@@ -842,7 +842,7 @@ PHASES
   it("parses exercise with lbs weight", () => {
     const doc = exerciseDoc("bench_press 3x10 weight 135 lbs");
     const ex = getExercise(doc);
-    expect(ex.weight).toEqual({ type: "absolute", value: 135, unit: "lbs" });
+    expect(ex.weight).toMatchObject({ type: "absolute", value: 135, unit: "lbs" });
   });
 
   it("unknown exercise generates error with suggestions", () => {
@@ -1912,7 +1912,7 @@ PHASES
           bench_press 5x5 weight 75 percentage_1rm`);
     const ex = doc.phases[0].weeks[0].days[0].blocks[0].activities[0];
     if (ex.kind === "exercise") {
-      expect(ex.weight).toEqual({
+      expect(ex.weight).toMatchObject({
         type: "percentage_1rm",
         value: 75,
         unit: "percentage_1rm",

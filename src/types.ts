@@ -79,6 +79,7 @@ export interface Target {
   value: number;
   unit: string;
   measurement_type: MeasurementType;
+  range?: SourceRange;
 }
 
 export interface Milestone {
@@ -87,6 +88,7 @@ export interface Milestone {
   at_unit: string;
   reward_points: number | null;
   badge: string | null;
+  range?: SourceRange;
 }
 
 export interface Goal {
@@ -108,6 +110,7 @@ export interface Equipment {
   name: string;
   required: boolean;
   alternatives: string[] | null;
+  range?: SourceRange;
 }
 
 export type ContraindicationAction = "exclude" | "modify";
@@ -295,6 +298,7 @@ export interface Weight {
   type: WeightType;
   value: number | null;
   unit: string | null;
+  range?: SourceRange;
 }
 
 export interface Exercise {
@@ -319,12 +323,14 @@ export interface Intensity {
   type: IntensityType;
   value: number | string | null;
   bounds: [number, number] | null;
+  range?: SourceRange;
 }
 
 export interface IntervalPattern {
   work_seconds: number;
   rest_seconds: number;
   repeats: number;
+  range?: SourceRange;
 }
 
 export interface Cardio {
@@ -347,6 +353,7 @@ export interface NutritionTiming {
   type: NutritionTimingType;
   duration: Duration | null;
   time: string | null; // HH:MM string
+  range?: SourceRange;
 }
 
 export type MacroRange = [number, number]; // [min, max]
@@ -355,6 +362,7 @@ export interface Macros {
   protein: MacroRange | null;
   carbs: MacroRange | null;
   fat: MacroRange | null;
+  range?: SourceRange;
 }
 
 export interface Nutrition {
@@ -383,6 +391,7 @@ export interface RecoveryExercise {
   hold_seconds: number;
   reps: number;
   sides: RecoverySides | null;
+  range?: SourceRange;
 }
 
 export interface Recovery {
@@ -447,11 +456,13 @@ export interface Achievement {
   condition: string;
   condition_value: number;
   points: number;
+  range?: SourceRange;
 }
 
 export interface StreaksConfig {
   enabled: boolean;
   types: string[] | null;
+  range?: SourceRange;
 }
 
 export interface Progress {
@@ -471,6 +482,7 @@ export interface Notification {
   enabled: boolean;
   timing: { duration: Duration; relative_to: string } | null;
   message: string;
+  range?: SourceRange;
 }
 
 // ---------------------------------------------------------------------------
@@ -483,6 +495,7 @@ export interface Rendering {
   accent_color: string | null;
   icons: Record<string, string> | null;
   difficulty_colors: Record<string, string> | null;
+  range?: SourceRange;
 }
 
 // ---------------------------------------------------------------------------
