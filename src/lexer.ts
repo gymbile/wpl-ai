@@ -23,6 +23,7 @@ import {
   tabCharacter,
   unexpectedDedent,
 } from "./errors.js";
+import { GRAMMAR } from "./grammar.js";
 
 // ---------------------------------------------------------------------------
 // Token types
@@ -69,31 +70,15 @@ export interface Token {
 // Keywords
 // ---------------------------------------------------------------------------
 
-const KEYWORDS: Set<string> = new Set([
-  // Sections & directives
-  "PLAN", "TYPE", "VISIBILITY", "DIFFICULTY", "DURATION", "TAGS",
-  "LANGUAGE", "MIN_APP_VERSION", "SCHEMA",
-  "GOALS", "GOAL", "REQUIRES", "PERSONALIZATION", "INPUTS", "RULES", "WHEN",
-  "PHASES", "PHASE", "WEEK", "DAY",
-  "PROGRESS", "NOTIFICATIONS", "RENDERING",
-  // Priority
-  "primary", "secondary",
-  // Plan types
-  "workout", "nutrition", "meditation", "recovery", "hybrid",
-  // Visibility
-  "private", "public", "template",
-  // Difficulty
-  "beginner", "intermediate", "advanced", "adaptive",
-  // Day types
-  "training", "rest", "active_recovery", "assessment",
-  // Block types
-  "warmup", "main", "cooldown", "education",
-  // Block structures
-  "circuit", "straight_sets", "superset", "emom", "amrap", "tabata",
-  // Activity kinds
+// Lexer-only structural keywords — words that are not enum values in any
+// GRAMMAR table but still need to tokenize as `keyword` rather than `bare_word`.
+// (Capitalized identifiers also auto-classify as keywords; the entries below
+// are the lowercase / underscore_separated tokens that wouldn't otherwise.)
+const LEXER_ONLY_KEYWORDS: readonly string[] = [
+  // Activity kinds (not in any GRAMMAR enum on their own)
   "cardio", "habit",
-  // Schedule
-  "morning", "afternoon", "evening", "any", "strict", "flexible",
+  // Block types missing from GRAMMAR.block_type's set vs lexer (kept for parity)
+  // (GRAMMAR.block_type covers warmup/main/cooldown/education/etc.)
   // Requirements
   "age", "fitness", "equipment", "contraindication", "time",
   "required", "optional", "alternatives",
@@ -118,39 +103,65 @@ const KEYWORDS: Set<string> = new Set([
   "rounds", "rest_between_rounds",
   // Day fields
   "schedule", "notes",
-  // Logical
-  "AND", "OR",
   // Comparison operators (keyword form)
   "contains", "not_contains",
   // Actions
   "reduce", "modify", "add", "replace", "exclude", "remove", "increase",
   // Scope
   "scope",
-  "activity", "block", "day", "week", "phase", "plan",
   // Exercise params
   "rpe", "rir", "tempo", "rest", "weight",
   // Prepositions
   "before", "after", "in",
-  // Time units
-  "seconds", "minutes", "hours", "days", "weeks",
-  // Weight units
-  "kg", "lbs", "percentage_1rm",
-  // Distance units
+  // Distance units (not in GRAMMAR)
   "meters", "km", "miles",
-  // Intensity types
+  // Intensity types (not in GRAMMAR)
   "heart_rate_zone", "bpm", "pace",
-  // Weight types
-  "bodyweight",
-  // Measurement types
-  "absolute", "relative", "percentage",
+  // Measurement types extras (relative is missing from GRAMMAR.measurement_type? it's there;
+  // "percentage" appears below as overlap with measurement_type)
   // Booleans
   "true", "false",
   // Recovery
-  "sides", "both", "left", "right",
+  "sides",
   // Misc
   "rules", "types",
   "work",
   "x",
+];
+
+// Structural section / directive keywords (uppercase). They auto-classify as
+// keywords because of the leading capital letter rule, but listed here for
+// documentation and to make the source-of-truth explicit.
+const STRUCTURAL_KEYWORDS: readonly string[] = [
+  "PLAN", "TYPE", "VISIBILITY", "DIFFICULTY", "DURATION", "TAGS",
+  "LANGUAGE", "MIN_APP_VERSION", "SCHEMA",
+  "GOALS", "GOAL", "REQUIRES", "PERSONALIZATION", "INPUTS", "RULES", "WHEN",
+  "PHASES", "PHASE", "WEEK", "DAY",
+  "PROGRESS", "NOTIFICATIONS", "RENDERING",
+  "AND", "OR",
+];
+
+// Build KEYWORDS from GRAMMAR enum tables (single source of truth) + the small
+// explicit lexer-only / structural lists above.
+const KEYWORDS: Set<string> = new Set<string>([
+  ...STRUCTURAL_KEYWORDS,
+  ...GRAMMAR.plan_type,
+  ...GRAMMAR.visibility,
+  ...GRAMMAR.difficulty,
+  ...GRAMMAR.goal_priority,
+  ...GRAMMAR.measurement_type,
+  ...GRAMMAR.contraindication_action,
+  ...GRAMMAR.action_scope,
+  ...GRAMMAR.day_type,
+  ...GRAMMAR.block_type,
+  ...GRAMMAR.block_structure,
+  ...GRAMMAR.recovery_sides,
+  ...GRAMMAR.weight_type,
+  ...GRAMMAR.unit_time,
+  ...GRAMMAR.unit_weight,
+  ...GRAMMAR.schedule_pref,
+  ...GRAMMAR.schedule_flex,
+  ...LEXER_ONLY_KEYWORDS,
 ]);
 
 // ---------------------------------------------------------------------------
