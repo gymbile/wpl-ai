@@ -7,6 +7,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.6.0] — 2026-05-03
+
+### Added
+- `SubPlan` AST type (`kind: "sub_plan"`, `sub_plan_ref`, `name`). Joins the `Activity` union. Compiler emits `{ id, type: "sub_plan", name?, sub_plan_ref }` against schema v1.5.0.
+
+### Notes
+Targets schema v1.5.0. ASTs that don't construct `SubPlan` activities produce identical compiled JSON. 957/957 tests pass.
+
 ## [1.5.0] — 2026-05-03
 
 ### Added

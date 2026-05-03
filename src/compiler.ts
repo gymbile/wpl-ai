@@ -625,7 +625,21 @@ function compileActivity(
       return compileHabit(activity, index, ctx);
     case "simple":
       return compileSimpleActivity(activity, index);
+    case "sub_plan":
+      return compileSubPlan(activity, index);
   }
+}
+
+function compileSubPlan(
+  sp: import("./types.js").SubPlan,
+  index: number,
+): Record<string, unknown> {
+  return compact({
+    id: `sub_plan_${index}`,
+    type: "sub_plan",
+    name: sp.name ?? undefined,
+    sub_plan_ref: sp.sub_plan_ref,
+  });
 }
 
 // ---------------------------------------------------------------------------

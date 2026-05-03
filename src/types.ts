@@ -300,7 +300,8 @@ export type Activity =
   | Meditation
   | Recovery
   | Habit
-  | SimpleActivity;
+  | SimpleActivity
+  | SubPlan;
 
 // single | range | range+target
 export type RepsSpec = number | [number, number] | [number, number, number];
@@ -502,6 +503,19 @@ export interface SimpleActivity {
   name: string;
   duration: Duration | null;
   params: string[] | null;
+  range?: SourceRange;
+}
+
+/**
+ * Activity that includes another plan by reference. Lets a workout reuse a
+ * 'warmup plan' or compose larger sessions from smaller plans. Resolution is
+ * the consumer's responsibility; validators emit `CYCLIC_SUBPLAN` for
+ * self-references and (with a `sub_plans` resolution map) for known cycles.
+ */
+export interface SubPlan {
+  kind: "sub_plan";
+  sub_plan_ref: string;
+  name: string | null;
   range?: SourceRange;
 }
 
