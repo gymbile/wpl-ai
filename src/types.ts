@@ -330,6 +330,45 @@ export interface StructuredTempo {
   explosive_concentric?: boolean;
 }
 
+export type MuscleGroup =
+  | "chest"
+  | "upper_back"
+  | "lats"
+  | "traps"
+  | "front_delts"
+  | "side_delts"
+  | "rear_delts"
+  | "biceps"
+  | "triceps"
+  | "forearms"
+  | "abs"
+  | "obliques"
+  | "lower_back"
+  | "spinal_erectors"
+  | "glutes"
+  | "quadriceps"
+  | "hamstrings"
+  | "calves"
+  | "hip_adductors"
+  | "hip_abductors"
+  | "hip_flexors"
+  | "neck";
+
+export type MovementPattern =
+  | "squat"
+  | "hinge"
+  | "lunge"
+  | "push_horizontal"
+  | "push_vertical"
+  | "pull_horizontal"
+  | "pull_vertical"
+  | "carry"
+  | "rotate"
+  | "anti_rotate"
+  | "gait"
+  | "jump"
+  | "isolation";
+
 export interface Exercise {
   kind: "exercise";
   exercise_ref: string;
@@ -341,17 +380,30 @@ export interface Exercise {
   tempo: Tempo | null;
   rest: Duration | null;
   weight: Weight | null;
+  primary_muscles: MuscleGroup[] | null;
+  secondary_muscles: MuscleGroup[] | null;
+  movement_pattern: MovementPattern | null;
   range?: SourceRange;
 }
 
 export type CardioType = "continuous" | "intervals" | "fartlek";
 
-export type IntensityType = "rpe" | "heart_rate_zone" | "bpm" | "pace";
+export type IntensityType = "rpe" | "heart_rate_zone" | "bpm" | "pace" | "power";
+
+export type IntensityZoneModel =
+  | "hr_3_zone_seiler"
+  | "hr_5_zone"
+  | "hr_7_zone"
+  | "power_coggan_7_zone"
+  | "pace_critical_speed"
+  | "rpe_borg_10"
+  | "rpe_borg_20";
 
 export interface Intensity {
   type: IntensityType;
   value: number | string | null;
   bounds: [number, number] | null;
+  zone_model: IntensityZoneModel | null;
   range?: SourceRange;
 }
 
@@ -531,11 +583,29 @@ export interface Rendering {
 // Document root
 // ---------------------------------------------------------------------------
 
+export interface OneRMEntry {
+  exercise_ref: string;
+  value: number;
+  unit: "kg" | "lb";
+}
+
+export interface AthleteThresholds {
+  hr_max_bpm?: number;
+  lthr_bpm?: number;
+  resting_hr_bpm?: number;
+  ftp_watts?: number;
+  vo2max_ml_kg_min?: number;
+  critical_pace_seconds_per_km?: number;
+  body_weight_kg?: number;
+  one_rm?: OneRMEntry[];
+}
+
 export interface Document {
   header: Header;
   goals: Goal[] | null;
   requirements: Requirements | null;
   personalization: Personalization | null;
+  athlete_thresholds: AthleteThresholds | null;
   phases: Phase[];
   progress: Progress | null;
   notifications: Notification[] | null;

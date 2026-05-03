@@ -7,6 +7,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.4.0] — 2026-05-03
+
+### Added
+- AST types for muscle-group taxonomy: `MuscleGroup`, `MovementPattern` enums; `Exercise` gains `primary_muscles`, `secondary_muscles`, `movement_pattern`. Compiler emits these when set.
+- AST type `IntensityZoneModel` and `Intensity.zone_model` field. Compiler emits `zone_model` on the cardio prescription's intensity object when present.
+- AST types `AthleteThresholds`, `OneRMEntry`; `Document.athlete_thresholds` field. Compiler emits the resolved thresholds at the plan level.
+- `IntensityType` widened to include `"power"` (matches schema v1.3.0).
+
+### Notes
+Targets schema v1.3.0. Backwards compatible: ASTs that don't set the new fields produce identical compiled JSON. 957/957 tests pass.
+
 ## [1.3.0] — 2026-05-03
 
 ### Added

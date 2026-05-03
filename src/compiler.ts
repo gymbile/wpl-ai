@@ -164,6 +164,14 @@ function compileDocument(doc: Document, ctx: CompileContext): Record<string, unk
     ),
   };
 
+  if (doc.athlete_thresholds) {
+    plan.athlete_thresholds = ctx.withSegment(
+      "athlete_thresholds",
+      doc.athlete_thresholds,
+      () => compileAthleteThresholds(doc.athlete_thresholds!),
+    );
+  }
+
   // Register a pointer for the rendering section even though the compiler
   // doesn't currently emit it into the JSON output. Useful for diagnostics.
   if (doc.rendering) {
@@ -171,6 +179,19 @@ function compileDocument(doc: Document, ctx: CompileContext): Record<string, unk
   }
 
   return compact(plan);
+}
+
+function compileAthleteThresholds(t: import("./types.js").AthleteThresholds): Record<string, unknown> {
+  return compact({
+    hr_max_bpm: t.hr_max_bpm,
+    lthr_bpm: t.lthr_bpm,
+    resting_hr_bpm: t.resting_hr_bpm,
+    ftp_watts: t.ftp_watts,
+    vo2max_ml_kg_min: t.vo2max_ml_kg_min,
+    critical_pace_seconds_per_km: t.critical_pace_seconds_per_km,
+    body_weight_kg: t.body_weight_kg,
+    one_rm: t.one_rm && t.one_rm.length > 0 ? t.one_rm : undefined,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -668,6 +689,17 @@ function compileExercise(
     compiled.target_rir = ex.rir;
   }
 
+  // Muscle / movement-pattern tagging (schema v1.3.0+)
+  if (ex.primary_muscles && ex.primary_muscles.length > 0) {
+    compiled.primary_muscles = ex.primary_muscles;
+  }
+  if (ex.secondary_muscles && ex.secondary_muscles.length > 0) {
+    compiled.secondary_muscles = ex.secondary_muscles;
+  }
+  if (ex.movement_pattern) {
+    compiled.movement_pattern = ex.movement_pattern;
+  }
+
   return compiled;
 }
 
@@ -717,7 +749,14 @@ function compileCardio(
       p.duration = compileDuration(cardio.total_duration);
     }
     if (cardio.zone != null) {
-      p.intensity = { type: "heart_rate_zone", zone: cardio.zone };
+      const intensity: Record<string, unknown> = {
+        type: "heart_rate_zone",
+        zone: cardio.zone,
+      };
+      if (cardio.intensity?.zone_model) {
+        intensity.zone_model = cardio.intensity.zone_model;
+      }
+      p.intensity = intensity;
     }
     if (cardio.intervals) {
       p.intervals = ctx.withSegment("intervals", cardio.intervals, () =>
