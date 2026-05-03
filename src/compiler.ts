@@ -4,7 +4,8 @@
 // Ported from gymbile_backend/lib/gymbile_backend/wellness_plans/wpl_ai/compiler.ex
 // ---------------------------------------------------------------------------
 
-import { randomBytes, randomUUID } from "node:crypto";
+// WebCrypto globals (browser, Deno, Bun, Node 19+). Engines pin at the
+// package level guarantees a runtime that exposes globalThis.crypto.
 
 import type {
   Document,
@@ -107,7 +108,8 @@ function compact(obj: Record<string, unknown>): Record<string, unknown> {
 
 /** Generate a short random ID: `prefix_` + 8 hex chars. */
 function generateShortId(prefix: string): string {
-  return `${prefix}_${randomBytes(4).toString("hex")}`;
+  const bytes = crypto.getRandomValues(new Uint8Array(4));
+  return `${prefix}_${Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")}`;
 }
 
 /**
@@ -135,7 +137,7 @@ function humanise(slug: string | null | undefined): string {
 
 function compileDocument(doc: Document, ctx: CompileContext): Record<string, unknown> {
   const plan: Record<string, unknown> = {
-    id: randomUUID(),
+    id: crypto.randomUUID(),
     name: doc.header.name,
     type: doc.header.type,
     visibility: doc.header.visibility ?? "private",

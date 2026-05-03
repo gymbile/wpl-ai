@@ -7,6 +7,23 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.8.1] — 2026-05-03
+
+### Fixed
+- Restore browser compatibility. v1.7.0 switched the compiler from
+  WebCrypto globals to `node:crypto` imports to make Node 18 CI happy,
+  but that broke browser/Astro consumers (e.g. the wpl.dev playground)
+  because Vite/Rollup cannot bundle `node:crypto`. Switch back to
+  `globalThis.crypto.getRandomValues` and `crypto.randomUUID` —
+  available in browsers, Deno, Bun, and Node 19+.
+
+### Changed
+- Engines pin tightened from `>=18` to `>=20` to match what
+  WebCrypto-as-global actually requires (Node 19 added it; Node 20 is
+  the active LTS as of late 2024). Dropped Node 18 from the CI matrix.
+- Removed `@types/node` devDependency now that no source file imports
+  from `node:*` modules.
+
 ## [1.8.0] — 2026-05-03
 
 ### Added — DSL syntax for the per-plan config-style schema features

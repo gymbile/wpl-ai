@@ -1,6 +1,6 @@
 {
   "name": "@gymbile/wpl-ai",
-  "version": "1.8.0",
+  "version": "1.8.1",
   "description": "WPL-AI compiler: parse and compile WPL-AI DSL into WPL JSON",
   "type": "module",
   "sideEffects": false,
@@ -47,7 +47,7 @@
     "typescript"
   ],
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "repository": {
     "type": "git",
@@ -59,7 +59,6 @@
     "ajv": "^8.18.0"
   },
   "devDependencies": {
-    "@types/node": "^25.6.0",
     "tsup": "^8.5.0",
     "typescript": "^5.8.0",
     "vitest": "^3.2.4"
