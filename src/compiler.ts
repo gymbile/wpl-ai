@@ -165,11 +165,8 @@ function compileDocument(doc: Document, ctx: CompileContext): Record<string, unk
   };
 
   if (doc.athlete_thresholds) {
-    plan.athlete_thresholds = ctx.withSegment(
-      "athlete_thresholds",
-      doc.athlete_thresholds,
-      () => compileAthleteThresholds(doc.athlete_thresholds!),
-    );
+    // Top-level config — no AST node, so no withSegment pointer mapping.
+    plan.athlete_thresholds = compileAthleteThresholds(doc.athlete_thresholds);
   }
 
   // Register a pointer for the rendering section even though the compiler
@@ -1159,10 +1156,10 @@ function normalizeTempo(tempo: import("./types.js").Tempo): unknown {
   const m = dashed ?? fourDigit;
   if (!m) return tempo;
 
-  const ecc = parseSeg(m[1]);
-  const pauseBottom = parseSeg(m[2]);
-  const conc = parseSeg(m[3]);
-  const pauseTop = parseSeg(m[4]);
+  const ecc = parseSeg(m[1]!);
+  const pauseBottom = parseSeg(m[2]!);
+  const conc = parseSeg(m[3]!);
+  const pauseTop = parseSeg(m[4]!);
 
   // The eccentric phase cannot be "X" (no explosive lowering convention).
   if (ecc.value === null) return tempo;

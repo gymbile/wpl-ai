@@ -408,7 +408,7 @@ export interface Intensity {
   type: IntensityType;
   value: number | string | null;
   bounds: [number, number] | null;
-  zone_model: IntensityZoneModel | null;
+  zone_model?: IntensityZoneModel | null;
   range?: SourceRange;
 }
 

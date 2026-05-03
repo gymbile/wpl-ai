@@ -242,6 +242,7 @@ function parseDocument(state: ParseState): Document | null {
     goals: sections.goals ?? null,
     requirements: sections.requirements ?? null,
     personalization: sections.personalization ?? null,
+    athlete_thresholds: null,
     phases: sections.phases ?? [],
     progress: sections.progress ?? null,
     notifications: sections.notifications ?? null,

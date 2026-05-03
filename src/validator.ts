@@ -373,5 +373,7 @@ function getActivityLabel(activity: Activity): string {
       return activity.category;
     case "simple":
       return activity.name;
+    case "sub_plan":
+      return activity.sub_plan_ref;
   }
 }
