@@ -780,6 +780,10 @@ function compileCardio(
         intensity.zone_model = cardio.intensity.zone_model;
       }
       p.intensity = intensity;
+    } else if (cardio.intensity) {
+      // Emit non-zone intensity types (bpm, rpe, pace) into prescription.intensity
+      // with the canonical schema shape: { type, target: { ... } }
+      p.intensity = compileIntensity(cardio.intensity);
     }
     if (cardio.intervals) {
       p.intervals = ctx.withSegment("intervals", cardio.intervals, () =>
@@ -789,8 +793,7 @@ function compileCardio(
     return p;
   });
 
-  // Standalone intensity (rpe/heart_rate_zone/bpm/pace) sits outside the
-  // prescription block. Register it under the activity's pointer.
+  // Register source-range pointer for the intensity AST node.
   if (cardio.intensity) {
     ctx.withSegment("intensity", cardio.intensity, () => null);
   }
@@ -1238,6 +1241,54 @@ function compileWeight(weight: Weight): Record<string, unknown> {
     unit: weight.unit,
     metric: weight.metric,
   });
+}
+
+/**
+ * Compiles a parsed Intensity node into the canonical schema shape:
+ * `{ type, target: { ... } }`.
+ *
+ * - bpm:              target = { min_bpm, max_bpm }  (from bounds)
+ * - rpe:              target = { value: rpe_value }
+ * - pace:             target = { value: pace_string }
+ * - heart_rate_zone:  target = { zone: N }
+ */
+function compileIntensity(intensity: import("./types.js").Intensity): Record<string, unknown> {
+  const base: Record<string, unknown> = { type: intensity.type };
+
+  switch (intensity.type) {
+    case "bpm": {
+      if (intensity.bounds) {
+        base.target = {
+          min_bpm: intensity.bounds[0],
+          max_bpm: intensity.bounds[1],
+        };
+      }
+      break;
+    }
+    case "rpe": {
+      if (intensity.value != null) {
+        base.target = { value: intensity.value };
+      }
+      break;
+    }
+    case "pace": {
+      if (intensity.value != null) {
+        base.target = { value: intensity.value };
+      }
+      break;
+    }
+    case "heart_rate_zone": {
+      if (intensity.value != null) {
+        base.target = { zone: intensity.value };
+      }
+      if (intensity.zone_model) {
+        base.zone_model = intensity.zone_model;
+      }
+      break;
+    }
+  }
+
+  return base;
 }
 
 function compileIntervals(pattern: IntervalPattern): Record<string, unknown> {

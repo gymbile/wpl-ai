@@ -2112,12 +2112,7 @@ function parseExerciseOrSimpleActivity(state: ParseState): Activity {
       (next.type === "bare_word" && next.value === "x")
     ) {
       advance(state); // skip "x"
-      // Clear any stale AMRAP flag before parsing reps
-      (state as Record<string, unknown>)._reps_amrap = false;
-      const reps = parseRepsSpec(state);
-      // Capture the AMRAP sentinel set by parseRepsSpec (schema v1.6.0+)
-      const repsAmrap = (state as Record<string, unknown>)._reps_amrap === true;
-      (state as Record<string, unknown>)._reps_amrap = false;
+      const { reps, amrap: repsAmrap } = parseRepsSpec(state);
 
       const modifiers = parseExerciseModifiers(state);
 
@@ -2211,18 +2206,17 @@ function validateExerciseRef(state: ParseState, ref: string): void {
 // ---------------------------------------------------------------------------
 
 /**
- * Parses a reps spec. The reps position can be:
- *   - A plain number:         10
- *   - A range:                6..8
- *   - A range with target:    6..8 target 7
- *   - AMRAP (any case):       amrap / AMRAP  → stored as the sentinel value 0;
- *     the caller must also set reps_amrap=true when this returns RepsSpec.
+ * Parses a reps spec. Returns `{ reps, amrap }` where:
+ *   - reps:  the parsed RepsSpec (0 sentinel when AMRAP)
+ *   - amrap: true when the AMRAP token was consumed (schema v1.6.0+)
  *
- * When AMRAP is parsed the function returns 0 as a placeholder reps value.
- * The caller (`parseExerciseOrSimpleActivity`) detects this via the
- * side-channel `state._reps_amrap` flag.
+ * Accepted forms:
+ *   - A plain number:             10
+ *   - A range:                    6..8
+ *   - A range with target:        6..8 target 7
+ *   - AMRAP (any case):           amrap / AMRAP → reps=0, amrap=true
  */
-function parseRepsSpec(state: ParseState): RepsSpec {
+function parseRepsSpec(state: ParseState): { reps: RepsSpec; amrap: boolean } {
   // Accept AMRAP / amrap as a bare reps token (schema v1.6.0+).
   const tok = currentToken(state);
   if (
@@ -2230,9 +2224,7 @@ function parseRepsSpec(state: ParseState): RepsSpec {
     String(tok.value).toLowerCase() === "amrap"
   ) {
     advance(state);
-    // Use a sentinel; caller reads state._reps_amrap to know this was AMRAP.
-    (state as Record<string, unknown>)._reps_amrap = true;
-    return 0;
+    return { reps: 0, amrap: true };
   }
 
   const first = expectNumber(state);
@@ -2248,17 +2240,16 @@ function parseRepsSpec(state: ParseState): RepsSpec {
     ) {
       advance(state);
       const target = expectNumber(state);
-      return [
-        Math.trunc(first),
-        Math.trunc(second),
-        Math.trunc(target),
-      ];
+      return {
+        reps: [Math.trunc(first), Math.trunc(second), Math.trunc(target)],
+        amrap: false,
+      };
     }
 
-    return [Math.trunc(first), Math.trunc(second)];
+    return { reps: [Math.trunc(first), Math.trunc(second)], amrap: false };
   }
 
-  return Math.trunc(first);
+  return { reps: Math.trunc(first), amrap: false };
 }
 
 // ---------------------------------------------------------------------------
