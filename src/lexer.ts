@@ -135,6 +135,8 @@ const LEXER_ONLY_KEYWORDS: readonly string[] = [
   "true", "false",
   // Recovery
   "sides",
+  // v1.6.0: recovery exercise extensions
+  "modality", "body", "pnf", "contract", "relax", "contractions",
   // Misc
   "rules", "types",
   "work",
@@ -176,6 +178,7 @@ const KEYWORDS: Set<string> = new Set<string>([
   ...GRAMMAR.schedule_pref,
   ...GRAMMAR.schedule_flex,
   ...GRAMMAR.phase_type,
+  ...GRAMMAR.recovery_modality,
   ...LEXER_ONLY_KEYWORDS,
 ]);
 

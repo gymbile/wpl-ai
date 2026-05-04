@@ -57,6 +57,7 @@ import type {
   Recovery,
   RecoveryExercise,
   RecoverySides,
+  PnfParams,
   Habit,
   Progress,
   Checkpoint,
@@ -103,6 +104,7 @@ import {
   MUSCLE_GROUP_SET,
   MOVEMENT_PATTERN_SET,
   INTENSITY_ZONE_MODEL_SET,
+  RECOVERY_MODALITY_SET_GRAMMAR,
 } from "./grammar.js";
 
 import { WEIGHT_METRIC_SYNONYMS } from "./vocabularies.js";
@@ -3057,7 +3059,20 @@ function parseRecoveryBody(state: ParseState): {
     }
 
     if (tok.type === "bare_word") {
-      exercises.push(parseRecoveryExercise(state));
+      const ex = parseRecoveryExercise(state);
+      exercises.push(ex);
+      // Check for a pnf continuation line (schema v1.6.0+)
+      skipNewlines(state);
+      const pnfTok = currentToken(state);
+      if (
+        (pnfTok.type === "keyword" || pnfTok.type === "bare_word") &&
+        pnfTok.value === "pnf"
+      ) {
+        const pnfParams = parsePnfContinuation(state);
+        if (pnfParams) {
+          ex.pnf = pnfParams;
+        }
+      }
       continue;
     }
 
@@ -3108,12 +3123,125 @@ function parseRecoveryExercise(state: ParseState): RecoveryExercise {
       : (GRAMMAR.recovery_sides[0] as RecoverySides);
   }
 
-  return {
+  // v1.6.0 extensions: modality, intensity (→ intensity_rpe), body (→ body_part)
+  let modality: import("./types.js").RecoveryModality | undefined;
+  let intensityRpe: number | undefined;
+  let bodyPart: string | undefined;
+
+  // Parse optional modifiers in any order (modality, intensity, body)
+  for (;;) {
+    const t = currentToken(state);
+    if (t.type !== "keyword" && t.type !== "bare_word") break;
+
+    if (t.value === "modality") {
+      advance(state);
+      const modalTok = currentToken(state);
+      if (modalTok.type === "keyword" || modalTok.type === "bare_word") {
+        const modalStr = String(modalTok.value);
+        if (RECOVERY_MODALITY_SET_GRAMMAR.has(modalStr)) {
+          modality = modalStr as import("./types.js").RecoveryModality;
+          advance(state);
+        }
+      }
+      continue;
+    }
+
+    if (t.value === "intensity") {
+      advance(state);
+      intensityRpe = Math.trunc(expectNumber(state));
+      continue;
+    }
+
+    if (t.value === "body") {
+      advance(state);
+      // Accept any bare_word or keyword as the body part identifier
+      const bodyTok = currentToken(state);
+      if (bodyTok.type === "bare_word" || bodyTok.type === "keyword") {
+        bodyPart = String(bodyTok.value);
+        advance(state);
+      }
+      continue;
+    }
+
+    break;
+  }
+
+  const ex: RecoveryExercise = {
     name,
     hold_seconds: Math.trunc(hold),
     reps: Math.trunc(reps),
     sides,
     range: makeRange(state, fromOffset),
+  };
+
+  if (modality !== undefined) ex.modality = modality;
+  if (intensityRpe !== undefined) ex.intensity_rpe = intensityRpe;
+  if (bodyPart !== undefined) ex.body_part = bodyPart;
+
+  return ex;
+}
+
+/**
+ * Parses a `pnf` continuation line (schema v1.6.0+):
+ *   pnf <Ns> contract <Ns> relax <int> contractions
+ * Expects the `pnf` keyword as the current token.
+ */
+function parsePnfContinuation(state: ParseState): PnfParams | null {
+  advance(state); // skip "pnf"
+
+  const contractionSec = expectNumber(state);
+
+  // Skip "s" for seconds
+  if (
+    currentToken(state).type === "bare_word" &&
+    currentToken(state).value === "s"
+  ) {
+    advance(state);
+  }
+
+  // Expect "contract" keyword
+  const contractTok = currentToken(state);
+  if (
+    (contractTok.type === "keyword" || contractTok.type === "bare_word") &&
+    contractTok.value === "contract"
+  ) {
+    advance(state);
+  }
+
+  const relaxSec = expectNumber(state);
+
+  // Skip "s" for seconds
+  if (
+    currentToken(state).type === "bare_word" &&
+    currentToken(state).value === "s"
+  ) {
+    advance(state);
+  }
+
+  // Expect "relax" keyword
+  const relaxTok = currentToken(state);
+  if (
+    (relaxTok.type === "keyword" || relaxTok.type === "bare_word") &&
+    relaxTok.value === "relax"
+  ) {
+    advance(state);
+  }
+
+  const contractions = expectNumber(state);
+
+  // Skip "contractions" label if present
+  const contractionsLabelTok = currentToken(state);
+  if (
+    (contractionsLabelTok.type === "keyword" || contractionsLabelTok.type === "bare_word") &&
+    contractionsLabelTok.value === "contractions"
+  ) {
+    advance(state);
+  }
+
+  return {
+    contraction_seconds: Math.trunc(contractionSec),
+    relax_seconds: Math.trunc(relaxSec),
+    contractions: Math.trunc(contractions),
   };
 }
 

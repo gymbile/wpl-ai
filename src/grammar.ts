@@ -60,6 +60,11 @@ export const GRAMMAR = {
   habit_category: ["hydration", "sleep", "steps", "screen_time", "custom"],
   recovery_sides: ["both", "left", "right"],
   weight_type: ["bodyweight", "absolute", "percentage_1rm", "percentage_bodyweight"],
+  // -- Recovery modalities (schema v1.6.0+) --
+  recovery_modality: [
+    "static_stretch", "dynamic_stretch", "pnf",
+    "smr_foam_roll", "smr_ball", "breathwork", "mobility_drill",
+  ],
 
   // -- Periodization (schema v1.2.0+) --
   phase_type: [
@@ -132,6 +137,7 @@ export const BLOCK_TYPE_SET = new Set<string>(GRAMMAR.block_type);
 export const BLOCK_STRUCTURE_SET = new Set<string>(GRAMMAR.block_structure);
 export const CARDIO_TYPE_SET = new Set<string>(GRAMMAR.cardio_type);
 export const RECOVERY_SIDES_SET = new Set<string>(GRAMMAR.recovery_sides);
+export const RECOVERY_MODALITY_SET_GRAMMAR = new Set<string>(GRAMMAR.recovery_modality);
 export const TIME_UNIT_SHORT_SET = new Set<string>(GRAMMAR.unit_time_short);
 export const SCHEDULE_PREF_SET = new Set<string>(GRAMMAR.schedule_pref);
 export const SCHEDULE_FLEX_SET = new Set<string>(GRAMMAR.schedule_flex);
