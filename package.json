@@ -1,6 +1,6 @@
 {
   "name": "@gymbile/wpl-ai",
-  "version": "1.9.0",
+  "version": "1.10.0",
   "description": "WPL-AI compiler: parse and compile WPL-AI DSL into WPL JSON",
   "type": "module",
   "sideEffects": false,

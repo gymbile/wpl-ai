@@ -7,6 +7,39 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.10.0] — 2026-05-04
+
+### Added — DSL grammar surfaces for WPL schema v1.6.0
+
+- **Contraindication severity + `require_clearance` action (DSL)**: new inline
+  syntax `contraindication <name> severity <low|moderate|high> action <action>`
+  alongside the legacy `contraindication <name> -> <action>` arrow form.
+  `require_clearance` is now a valid action enum value in the grammar.
+- **`Reps.amrap` (DSL)**: write `<sets>xAMRAP` or `<sets>x amrap` (any case)
+  in a main-block exercise line; the compiler emits `prescription.reps.amrap: true`.
+- **`ExercisePrescription.to_failure` (DSL)**: append `to_failure` anywhere in
+  the exercise modifier chain (e.g. `bench_press 3x6 weight 80% rm to_failure`);
+  the compiler emits `prescription.to_failure: true`.
+- **`Weight.metric` qualifier (DSL)**: extend weight syntax with an optional
+  `metric <value>` qualifier after the weight spec, e.g.
+  `weight 80% rm metric training_max`. Recognized values: `1rm` → `1RM`,
+  `e1rm` → `e1RM`, `training_max`, `daily_max`. Emits `prescription.weight.metric`.
+- **`RecoveryExercise` modality/pnf/intensity_rpe/body_part (DSL)**: extend
+  recovery exercise lines with: `modality <enum>`, `intensity <1-10>` (→
+  `intensity_rpe`), `body <token>` (→ `body_part`). Optional pnf continuation
+  line: `pnf <Ns> contract <Ns> relax <int> contractions`.
+- **`Checkpoint.measurements` typed `MeasurementSpec` (DSL)**: items in the
+  `measure:` list may now be bare `MeasurementMetric` enum tokens (→ `{ metric }`)
+  or `<metric> questionnaire <questionnaire> [note "text"]` (→ `{ metric,
+  questionnaire, note }`). Quoted strings and dash-prefixed items remain as plain
+  strings (back-compat). `CHECKPOINT` keyword is now also accepted directly inside
+  `PROGRESS` without a wrapping `checkpoints:` block.
+- **Cardio `intensity.target.min_bpm` / `max_bpm` emission** (compiler fix):
+  `intensity bpm 150..170` now compiles to
+  `prescription.intensity: { type: "bpm", target: { min_bpm: 150, max_bpm: 170 } }`.
+  Previously the parsed BPM bounds were registered as a source pointer but not
+  emitted to the JSON output.
+
 ## [1.9.0] — 2026-05-04
 
 ### Added — emit support for WPL schema v1.6.0
