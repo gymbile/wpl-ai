@@ -288,7 +288,11 @@ function validateProgress(
 
   for (const cp of progress.checkpoints ?? []) {
     for (const m of cp.measurements ?? []) {
-      checkVocabulary(m, "measurement metric", MEASUREMENT_METRIC_SET, MEASUREMENT_METRICS, cp.range, sm, warnings);
+      // 1.6.0: items can be a free string (legacy/free-text) or a typed MeasurementSpec.
+      // Only legacy strings need vocabulary linting; typed specs are already validated by the schema.
+      if (typeof m === "string") {
+        checkVocabulary(m, "measurement metric", MEASUREMENT_METRIC_SET, MEASUREMENT_METRICS, cp.range, sm, warnings);
+      }
     }
   }
 
