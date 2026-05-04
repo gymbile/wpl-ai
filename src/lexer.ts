@@ -84,6 +84,8 @@ const LEXER_ONLY_KEYWORDS: readonly string[] = [
   "required", "optional", "alternatives",
   // v1.6.0: contraindication severity and action keywords
   "severity", "action", "require_clearance",
+  // v1.6.0: measurement spec keywords
+  "questionnaire", "note",
   // Goal fields
   "target", "deadline", "milestone", "reward", "badge", "at",
   // Common fields

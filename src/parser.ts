@@ -68,6 +68,8 @@ import type {
   StreaksConfig,
   Notification,
   Rendering,
+  MeasurementSpec,
+  MeasurementMetric,
 } from "./types.js";
 
 import type { Location, WplError, ParseError } from "./errors.js";
@@ -107,7 +109,11 @@ import {
   RECOVERY_MODALITY_SET_GRAMMAR,
 } from "./grammar.js";
 
-import { WEIGHT_METRIC_SYNONYMS } from "./vocabularies.js";
+import {
+  WEIGHT_METRIC_SYNONYMS,
+  MEASUREMENT_METRIC_ENUM_SET,
+  QUESTIONNAIRE_SET,
+} from "./vocabularies.js";
 
 // ---------------------------------------------------------------------------
 // Parse State (mutable)
@@ -3417,6 +3423,15 @@ function parseProgressBody(
           expectIndent(state);
           attrs.checkpoints = parseCheckpoints(state);
           continue;
+        case "checkpoint":
+        case "CHECKPOINT": {
+          // Short form: CHECKPOINT items directly inside PROGRESS (no wrapper block)
+          const cp = parseCheckpoint(state);
+          const cps = (attrs.checkpoints as Checkpoint[]) ?? [];
+          cps.push(cp);
+          attrs.checkpoints = cps;
+          continue;
+        }
         case "points": {
           advance(state);
           const enabled = expectEnabledDisabled(state);
@@ -3491,7 +3506,7 @@ function parseCheckpoint(state: ParseState): Checkpoint {
   return {
     name,
     trigger: (attrs.trigger as CheckpointTrigger) ?? { type: "manual" },
-    measurements: (attrs.measurements as string[]) ?? null,
+    measurements: (attrs.measurements as (string | MeasurementSpec)[]) ?? null,
     questions: (attrs.questions as string[]) ?? null,
     range: makeRange(state, fromOffset),
   };
@@ -3512,12 +3527,24 @@ function parseCheckpointBody(
           advance(state);
           attrs.trigger = parseTrigger(state);
           continue;
+        case "at": {
+          // Alternative trigger syntax: `at N weeks` / `at N days`
+          advance(state);
+          const atVal = Math.trunc(expectNumber(state));
+          // Consume optional unit (weeks / days)
+          const unitTok = currentToken(state);
+          if (unitTok.type === "keyword" || unitTok.type === "bare_word") {
+            advance(state); // skip unit; we treat `at N weeks` as every=N unit_count=1
+          }
+          attrs.trigger = { type: "time", every: atVal, unit_count: 1 } as CheckpointTrigger;
+          continue;
+        }
         case "measure":
           advance(state);
           expectColon(state);
           skipNewlines(state);
           expectIndent(state);
-          attrs.measurements = parseStringList(state);
+          attrs.measurements = parseMeasurementList(state);
           continue;
         case "ask":
           advance(state);
@@ -3596,6 +3623,109 @@ function parseStringList(state: ParseState): string[] {
     } else {
       break;
     }
+  }
+
+  return items;
+}
+
+/**
+ * Parses a measurement list under the `measure:` key (schema v1.6.0+).
+ * Accepts both the legacy dash-prefixed string list AND new undecorated items:
+ *
+ * Legacy form (back-compat):
+ *   - body_weight                    → plain string "body_weight"
+ *   - "quoted string"                → plain string "quoted string"
+ *
+ * New structured forms (schema v1.6.0+):
+ *   body_weight_kg                   → { metric: "body_weight_kg" }
+ *   "free form string"               → "free form string" (plain string)
+ *   questionnaire_score questionnaire psqi [note "text"]
+ *                                    → { metric, questionnaire, note? }
+ *
+ * Unknown bare words are emitted as plain strings (warn-not-error policy).
+ */
+function parseMeasurementList(state: ParseState): (string | MeasurementSpec)[] {
+  const items: (string | MeasurementSpec)[] = [];
+
+  for (;;) {
+    skipNewlines(state);
+    const tok = currentToken(state);
+
+    // Dash-prefixed legacy form
+    if (tok.type === "minus") {
+      advance(state);
+      const next = currentToken(state);
+      if (next.type === "string") {
+        items.push(next.value as string);
+        advance(state);
+      } else if (next.type === "bare_word") {
+        items.push(next.value as string);
+        advance(state);
+      } else {
+        items.push("");
+      }
+      continue;
+    }
+
+    // Quoted string → plain string (back-compat, no type wrapping)
+    if (tok.type === "string") {
+      items.push(tok.value as string);
+      advance(state);
+      continue;
+    }
+
+    // Bare word — check if it's a known MeasurementMetric enum value
+    if (tok.type === "bare_word" || tok.type === "keyword") {
+      const metricStr = String(tok.value);
+      if (MEASUREMENT_METRIC_ENUM_SET.has(metricStr)) {
+        advance(state);
+        const spec: MeasurementSpec = { metric: metricStr as MeasurementMetric };
+
+        // Optional questionnaire qualifier
+        const questTok = currentToken(state);
+        if (
+          (questTok.type === "keyword" || questTok.type === "bare_word") &&
+          questTok.value === "questionnaire"
+        ) {
+          advance(state);
+          const questValTok = currentToken(state);
+          if (questValTok.type === "bare_word" || questValTok.type === "keyword") {
+            const questStr = String(questValTok.value).toLowerCase();
+            if (QUESTIONNAIRE_SET.has(questStr)) {
+              spec.questionnaire = questStr as import("./types.js").Questionnaire;
+              advance(state);
+            }
+          }
+        }
+
+        // Optional note qualifier
+        const noteTok = currentToken(state);
+        if (
+          (noteTok.type === "keyword" || noteTok.type === "bare_word") &&
+          noteTok.value === "note"
+        ) {
+          advance(state);
+          if (currentToken(state).type === "string") {
+            spec.note = currentToken(state).value as string;
+            advance(state);
+          }
+        }
+
+        items.push(spec);
+      } else {
+        // Unknown bare word — emit as plain string (warn-not-error policy)
+        items.push(metricStr);
+        advance(state);
+      }
+      continue;
+    }
+
+    if (tok.type === "dedent") {
+      advance(state);
+      break;
+    }
+
+    break;
   }
 
   return items;
