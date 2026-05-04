@@ -22,6 +22,7 @@ import type {
   Equipment,
   Contraindication,
   ContraindicationAction,
+  ContraindicationSeverity,
   TimeCommitment,
   Personalization,
   Input,
@@ -86,6 +87,7 @@ import {
   GOAL_PRIORITY_SET,
   MEASUREMENT_TYPE_SET,
   CONTRAINDICATION_ACTION_SET,
+  CONTRAINDICATION_SEVERITY_SET,
   INPUT_TYPE_SET,
   ACTION_SCOPE_SET,
   DAY_NAME_SET,
@@ -861,12 +863,41 @@ function parseEquipmentFlagsContent(
 function parseContraindication(state: ParseState): Contraindication {
   advance(state); // skip "contraindication"
   const condition = expectBareWord(state);
-  expectArrow(state);
-  const actionStr = expectBareWord(state);
 
-  const action: ContraindicationAction = CONTRAINDICATION_ACTION_SET.has(actionStr)
-    ? (actionStr as ContraindicationAction)
-    : (GRAMMAR.contraindication_action[0] as ContraindicationAction);
+  // Support two forms:
+  // v1.6.0 new form:  contraindication <name> [severity <level>] [action <action>]
+  // Legacy form:      contraindication <name> -> <action>
+  let severity: ContraindicationSeverity | undefined;
+  let action: ContraindicationAction = GRAMMAR.contraindication_action[0] as ContraindicationAction;
+
+  // Check for new-style keyword modifiers first
+  const tok = currentToken(state);
+  if (tok.type === "keyword" && tok.value === "severity") {
+    advance(state);
+    const sevStr = currentToken(state).value as string;
+    advance(state);
+    if (CONTRAINDICATION_SEVERITY_SET.has(sevStr)) {
+      severity = sevStr as ContraindicationSeverity;
+    }
+  }
+
+  const tok2 = currentToken(state);
+  if (tok2.type === "keyword" && tok2.value === "action") {
+    advance(state);
+    const actionStr = currentToken(state).value as string;
+    advance(state);
+    if (CONTRAINDICATION_ACTION_SET.has(actionStr)) {
+      action = actionStr as ContraindicationAction;
+    }
+  } else if (tok2.type === "arrow") {
+    // Legacy form: -> <action>
+    advance(state); // skip arrow
+    const actionStr = currentToken(state).value as string;
+    advance(state);
+    if (CONTRAINDICATION_ACTION_SET.has(actionStr)) {
+      action = actionStr as ContraindicationAction;
+    }
+  }
 
   let affectsList: string[] | null = null;
 
@@ -889,11 +920,17 @@ function parseContraindication(state: ParseState): Contraindication {
     }
   }
 
-  return {
+  const result: Contraindication = {
     condition,
     action,
     affects: affectsList,
   };
+
+  if (severity !== undefined) {
+    result.severity = severity;
+  }
+
+  return result;
 }
 
 function parseTimeCommitment(state: ParseState): TimeCommitment {

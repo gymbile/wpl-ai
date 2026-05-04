@@ -82,6 +82,8 @@ const LEXER_ONLY_KEYWORDS: readonly string[] = [
   // Requirements
   "age", "fitness", "equipment", "contraindication", "time",
   "required", "optional", "alternatives",
+  // v1.6.0: contraindication severity and action keywords
+  "severity", "action", "require_clearance",
   // Goal fields
   "target", "deadline", "milestone", "reward", "badge", "at",
   // Common fields
@@ -158,6 +160,7 @@ const KEYWORDS: Set<string> = new Set<string>([
   ...GRAMMAR.goal_priority,
   ...GRAMMAR.measurement_type,
   ...GRAMMAR.contraindication_action,
+  ...GRAMMAR.contraindication_severity,
   ...GRAMMAR.action_scope,
   ...GRAMMAR.day_type,
   ...GRAMMAR.block_type,

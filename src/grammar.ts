@@ -31,7 +31,8 @@ export const GRAMMAR = {
   measurement_type: ["absolute", "relative", "percentage"],
 
   // -- Requirements (EBNF §5) --
-  contraindication_action: ["exclude", "modify"],
+  contraindication_action: ["exclude", "modify", "require_clearance"],
+  contraindication_severity: ["low", "moderate", "high"],
 
   // -- Personalization (EBNF §6) --
   input_type: ["number", "string", "array", "enum", "boolean"],
@@ -122,6 +123,7 @@ export const SECTION_ALL_SET = new Set<string>([
 export const GOAL_PRIORITY_SET = new Set<string>(GRAMMAR.goal_priority);
 export const MEASUREMENT_TYPE_SET = new Set<string>(GRAMMAR.measurement_type);
 export const CONTRAINDICATION_ACTION_SET = new Set<string>(GRAMMAR.contraindication_action);
+export const CONTRAINDICATION_SEVERITY_SET = new Set<string>(GRAMMAR.contraindication_severity);
 export const INPUT_TYPE_SET = new Set<string>(GRAMMAR.input_type);
 export const ACTION_SCOPE_SET = new Set<string>(GRAMMAR.action_scope);
 export const DAY_NAME_SET = new Set<string>(GRAMMAR.day_name);
