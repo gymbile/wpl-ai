@@ -475,8 +475,10 @@ export const WEIGHT_METRIC_SYNONYMS: Record<string, string> = {
   "velocity 1rm": "e1RM",
   "training max": "training_max",
   "training maximum": "training_max",
+  "training_max": "training_max",
   "tm": "training_max",
   "daily max": "daily_max",
   "daily maximum": "daily_max",
+  "daily_max": "daily_max",
   "auto-regulated max": "daily_max",
 };

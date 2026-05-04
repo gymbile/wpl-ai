@@ -105,6 +105,8 @@ import {
   INTENSITY_ZONE_MODEL_SET,
 } from "./grammar.js";
 
+import { WEIGHT_METRIC_SYNONYMS } from "./vocabularies.js";
+
 // ---------------------------------------------------------------------------
 // Parse State (mutable)
 // ---------------------------------------------------------------------------
@@ -2063,7 +2065,38 @@ function parseExerciseOrSimpleActivity(state: ParseState): Activity {
     const setsOrDuration = tok.value as number;
     advance(state);
 
-    const next = currentToken(state);
+    let next = currentToken(state);
+
+    // Handle compact xAMRAP / xN style tokens (schema v1.6.0+).
+    // The lexer produces `xAMRAP` as a single bare_word. Synthesise a virtual
+    // "x" + the remainder so the exercise branch below is entered correctly.
+    if (next.type === "bare_word") {
+      const bw = String(next.value);
+      if (/^x/i.test(bw) && bw.length > 1) {
+        // Replace the token in-place by advancing and re-inserting two tokens.
+        // Simplest approach: overwrite the token value and insert a synthetic
+        // number or AMRAP keyword at the current position after advancing.
+        const rest = bw.slice(1); // the part after "x"
+        // Mutate the current token to value "x" so the check below fires.
+        state.tokens[state.pos] = {
+          ...next,
+          type: "keyword",
+          value: "x",
+        } as typeof next;
+        // Insert the reps part as a synthetic token immediately after.
+        const numericRest = /^\d+$/.test(rest) ? Number(rest) : null;
+        const syntheticToken = numericRest !== null
+          ? { ...next, type: "number" as const, value: numericRest }
+          : {
+              ...next,
+              type: "keyword" as const,
+              value: rest.toLowerCase(), // e.g. "amrap"
+            };
+        state.tokens.splice(state.pos + 1, 0, syntheticToken as typeof next);
+        // Refresh next after mutation
+        next = currentToken(state);
+      }
+    }
 
     // Check for "x" (sets x reps)
     if (
@@ -2071,7 +2104,13 @@ function parseExerciseOrSimpleActivity(state: ParseState): Activity {
       (next.type === "bare_word" && next.value === "x")
     ) {
       advance(state); // skip "x"
+      // Clear any stale AMRAP flag before parsing reps
+      (state as Record<string, unknown>)._reps_amrap = false;
       const reps = parseRepsSpec(state);
+      // Capture the AMRAP sentinel set by parseRepsSpec (schema v1.6.0+)
+      const repsAmrap = (state as Record<string, unknown>)._reps_amrap === true;
+      (state as Record<string, unknown>)._reps_amrap = false;
+
       const modifiers = parseExerciseModifiers(state);
 
       // Validate the exercise ref
@@ -2086,11 +2125,13 @@ function parseExerciseOrSimpleActivity(state: ParseState): Activity {
         name: (modifiers.name as string) ?? null,
         sets: Math.trunc(setsOrDuration),
         reps,
+        reps_amrap: repsAmrap || null,
         rpe: (modifiers.rpe as number) ?? null,
         rir: (modifiers.rir as number) ?? null,
         tempo: (modifiers.tempo as string) ?? null,
         rest: (modifiers.rest as Duration) ?? null,
         weight: (modifiers.weight as Weight) ?? null,
+        to_failure: (modifiers.to_failure as boolean) ?? null,
         primary_muscles:
           primaryMuscles && primaryMuscles.length > 0
             ? (primaryMuscles as import("./types.js").MuscleGroup[])
@@ -2161,7 +2202,31 @@ function validateExerciseRef(state: ParseState, ref: string): void {
 // Reps Spec: single | range | range+target
 // ---------------------------------------------------------------------------
 
+/**
+ * Parses a reps spec. The reps position can be:
+ *   - A plain number:         10
+ *   - A range:                6..8
+ *   - A range with target:    6..8 target 7
+ *   - AMRAP (any case):       amrap / AMRAP  → stored as the sentinel value 0;
+ *     the caller must also set reps_amrap=true when this returns RepsSpec.
+ *
+ * When AMRAP is parsed the function returns 0 as a placeholder reps value.
+ * The caller (`parseExerciseOrSimpleActivity`) detects this via the
+ * side-channel `state._reps_amrap` flag.
+ */
 function parseRepsSpec(state: ParseState): RepsSpec {
+  // Accept AMRAP / amrap as a bare reps token (schema v1.6.0+).
+  const tok = currentToken(state);
+  if (
+    (tok.type === "keyword" || tok.type === "bare_word") &&
+    String(tok.value).toLowerCase() === "amrap"
+  ) {
+    advance(state);
+    // Use a sentinel; caller reads state._reps_amrap to know this was AMRAP.
+    (state as Record<string, unknown>)._reps_amrap = true;
+    return 0;
+  }
+
   const first = expectNumber(state);
 
   if (currentToken(state).type === "range") {
@@ -2225,6 +2290,11 @@ function parseExerciseModifiers(
       case "name":
         advance(state);
         modifiers.name = expectString(state);
+        continue;
+      case "to_failure":
+        // v1.6.0: perform set to momentary muscular failure
+        advance(state);
+        modifiers.to_failure = true;
         continue;
       case "muscles": {
         advance(state);
@@ -2379,7 +2449,41 @@ function parseWeightSpec(state: ParseState): Weight {
       type = "absolute";
     }
 
-    return { type, value, unit, range: makeRange(state, fromOffset) };
+    // Optional `metric <value>` qualifier (schema v1.6.0+).
+    // Only meaningful for percentage_1rm weights; safely ignored otherwise.
+    let metric: import("./types.js").WeightMetric | undefined;
+    const metricTok = currentToken(state);
+    if (
+      (metricTok.type === "keyword" || metricTok.type === "bare_word") &&
+      metricTok.value === "metric"
+    ) {
+      advance(state);
+      const metricValTok = currentToken(state);
+      if (metricValTok.type === "bare_word" || metricValTok.type === "keyword") {
+        const metricStr = String(metricValTok.value).toLowerCase();
+        // Map to canonical enum: 1rm -> 1RM, e1rm -> e1RM, training_max, daily_max
+        metric = WEIGHT_METRIC_SYNONYMS[metricStr] as import("./types.js").WeightMetric | undefined;
+        if (metric) {
+          advance(state);
+        }
+      } else if (metricValTok.type === "number") {
+        // Handle "1rm": lexer tokenizes `1` as number, `rm` as bare_word.
+        // Reconstruct by concatenating number + next bare_word.
+        const nextTok = state.tokens[state.pos + 1];
+        if (nextTok && nextTok.type === "bare_word") {
+          const combined = `${metricValTok.value}${nextTok.value}`.toLowerCase();
+          metric = WEIGHT_METRIC_SYNONYMS[combined] as import("./types.js").WeightMetric | undefined;
+          if (metric) {
+            advance(state); // skip number
+            advance(state); // skip bare_word
+          }
+        }
+      }
+    }
+
+    const w: Weight = { type, value, unit, range: makeRange(state, fromOffset) };
+    if (metric) w.metric = metric;
+    return w;
   }
 
   return { type: "bodyweight", value: null, unit: null, range: makeRange(state, fromOffset) };

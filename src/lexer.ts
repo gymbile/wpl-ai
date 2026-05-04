@@ -115,6 +115,10 @@ const LEXER_ONLY_KEYWORDS: readonly string[] = [
   "rpe", "rir", "tempo", "rest", "weight",
   // Schema v1.3.0+ exercise tagging
   "muscles", "pattern",
+  // Schema v1.6.0+ exercise prescription
+  "to_failure",
+  // v1.6.0+ weight metric qualifier
+  "metric",
   // Schema v1.5.0+ sub-plan inclusion
   "subplan",
   // Schema v1.3.0+ cardio zone-model qualifier
