@@ -41,7 +41,7 @@ describe("Basic compilation", () => {
 
   it("produces valid JSON with version field", () => {
     const json = compileSource(MINIMAL);
-    expect(json.version).toBe("1.0.0");
+    expect(json.version).toBe("1.6.0");
   });
 
   it("sets plan.name from PLAN directive", () => {
@@ -1684,7 +1684,7 @@ PROGRESS
   it("has correct schema and version at top level", () => {
     const json = compileSource(FULL_SOURCE);
     expect(json.$schema).toBe("https://wpl.dev/schemas/wpl/v1.schema.json");
-    expect(json.version).toBe("1.0.0");
+    expect(json.version).toBe("1.6.0");
   });
 
   it("has correct plan name and type", () => {
@@ -2139,7 +2139,7 @@ describe("Direct compile API", () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.json.$schema).toBe("https://wpl.dev/schemas/wpl/v1.schema.json");
-      expect(result.json.version).toBe("1.0.0");
+      expect(result.json.version).toBe("1.6.0");
       const plan = result.json.plan as Record<string, unknown>;
       expect(plan.name).toBe("Direct Test");
       expect(plan.type).toBe("workout");

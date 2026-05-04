@@ -66,7 +66,7 @@ export function compile(
     const ctx = new CompileContext();
     const json: Record<string, unknown> = {
       $schema: "https://wpl.dev/schemas/wpl/v1.schema.json",
-      version: "1.0.0",
+      version: "1.6.0",
     };
     ctx.withSegment("plan", doc, () => {
       json.plan = compileDocument(doc, ctx);
@@ -335,6 +335,9 @@ function compileContraindication(contra: Contraindication): Record<string, unkno
     action: contra.action ?? "exclude",
   };
 
+  if (contra.severity) {
+    compiled.severity = contra.severity;
+  }
   if (contra.affects && contra.affects.length > 0) {
     compiled.affected_activities = contra.affects;
   }
@@ -665,11 +668,14 @@ function compileExercise(
       p.sets = ex.sets;
     }
 
-    const reps = compileReps(ex.reps);
+    const reps = compileReps(ex.reps, ex.reps_amrap);
     if (reps) {
       p.reps = reps;
     }
 
+    if (ex.to_failure) {
+      p.to_failure = true;
+    }
     if (ex.rest) {
       p.rest = compileDuration(ex.rest);
     }
@@ -718,23 +724,29 @@ function compileExercise(
 // Reps compilation
 // ---------------------------------------------------------------------------
 
-function compileReps(reps: RepsSpec | null | undefined): Record<string, unknown> | null {
-  if (reps == null) return null;
+function compileReps(
+  reps: RepsSpec | null | undefined,
+  amrap?: boolean | null,
+): Record<string, unknown> | null {
+  if (reps == null && !amrap) return null;
+
+  let result: Record<string, unknown> = {};
 
   if (typeof reps === "number") {
-    return { target: reps };
-  }
-
-  if (Array.isArray(reps)) {
+    result = { target: reps };
+  } else if (Array.isArray(reps)) {
     if (reps.length === 3) {
-      return { min: reps[0], max: reps[1], target: reps[2] };
-    }
-    if (reps.length === 2) {
-      return { min: reps[0], max: reps[1] };
+      result = { min: reps[0], max: reps[1], target: reps[2] };
+    } else if (reps.length === 2) {
+      result = { min: reps[0], max: reps[1] };
     }
   }
 
-  return null;
+  if (amrap) {
+    result.amrap = true;
+  }
+
+  return Object.keys(result).length > 0 ? result : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -942,6 +954,23 @@ function compileRecoveryExercise(
   if (ex.sides) {
     compiled.sides = ex.sides;
   }
+  // v1.6.0 fields
+  if (ex.modality) {
+    compiled.modality = ex.modality;
+  }
+  if (ex.intensity_rpe != null) {
+    compiled.intensity_rpe = ex.intensity_rpe;
+  }
+  if (ex.pnf) {
+    compiled.pnf = {
+      contraction_seconds: ex.pnf.contraction_seconds,
+      relax_seconds: ex.pnf.relax_seconds,
+      contractions: ex.pnf.contractions,
+    };
+  }
+  if (ex.body_part) {
+    compiled.body_part = ex.body_part;
+  }
 
   return compiled;
 }
@@ -1076,7 +1105,16 @@ function compileCheckpoint(cp: Checkpoint): Record<string, unknown> {
   }
 
   if (cp.measurements && cp.measurements.length > 0) {
-    compiled.measurements = cp.measurements;
+    // v1.6.0: items may be plain strings (back-compat) or typed MeasurementSpec objects.
+    compiled.measurements = cp.measurements.map((m) => {
+      if (typeof m === "string") return m;
+      // MeasurementSpec — emit only defined fields
+      const spec: Record<string, unknown> = { metric: m.metric };
+      if (m.unit) spec.unit = m.unit;
+      if (m.questionnaire) spec.questionnaire = m.questionnaire;
+      if (m.note) spec.note = m.note;
+      return spec;
+    });
   }
   if (cp.questions && cp.questions.length > 0) {
     compiled.questions = cp.questions;
@@ -1198,6 +1236,7 @@ function compileWeight(weight: Weight): Record<string, unknown> {
     type: weight.type ?? "absolute",
     value: weight.value,
     unit: weight.unit,
+    metric: weight.metric,
   });
 }
 

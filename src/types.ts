@@ -113,10 +113,14 @@ export interface Equipment {
   range?: SourceRange;
 }
 
-export type ContraindicationAction = "exclude" | "modify";
+export type ContraindicationSeverity = "low" | "moderate" | "high";
+
+export type ContraindicationAction = "exclude" | "modify" | "require_clearance";
 
 export interface Contraindication {
   condition: string;
+  /** Optional clinical-risk tier (mirrors ACSM low/moderate/high stratification). */
+  severity?: ContraindicationSeverity | null;
   action: ContraindicationAction;
   affects: string[] | null;
 }
@@ -312,10 +316,18 @@ export type WeightType =
   | "percentage_1rm"
   | "percentage_bodyweight";
 
+/**
+ * Reference metric for percentage_1rm weight prescriptions (schema v1.6.0+).
+ * Ignored when type is 'absolute' or 'percentage_bodyweight'.
+ */
+export type WeightMetric = "1RM" | "e1RM" | "training_max" | "daily_max";
+
 export interface Weight {
   type: WeightType;
   value: number | null;
   unit: string | null;
+  /** Optional reference metric for percentage_1rm (schema v1.6.0+). */
+  metric?: WeightMetric | null;
   range?: SourceRange;
 }
 
@@ -380,11 +392,18 @@ export interface Exercise {
   name: string | null;
   sets: number;
   reps: RepsSpec;
+  /** When true the set is performed AMRAP (as many reps as possible). Schema v1.6.0+. */
+  reps_amrap?: boolean | null;
   rpe: number | null;
   rir: number | null;
   tempo: Tempo | null;
   rest: Duration | null;
   weight: Weight | null;
+  /**
+   * When true the prescription is performed to momentary muscular failure.
+   * Mutually informative with target_rir=0. Schema v1.6.0+.
+   */
+  to_failure?: boolean | null;
   primary_muscles: MuscleGroup[] | null;
   secondary_muscles: MuscleGroup[] | null;
   movement_pattern: MovementPattern | null;
@@ -478,11 +497,42 @@ export interface Meditation {
 
 export type RecoverySides = "both" | "left" | "right";
 
+/**
+ * Recovery technique modality (schema v1.6.0+).
+ * 'static_stretch' = passive hold; 'dynamic_stretch' = active ROM;
+ * 'pnf' = proprioceptive neuromuscular facilitation;
+ * 'smr_foam_roll' / 'smr_ball' = self-myofascial release;
+ * 'breathwork' = breathing protocol; 'mobility_drill' = active mobility.
+ */
+export type RecoveryModality =
+  | "static_stretch"
+  | "dynamic_stretch"
+  | "pnf"
+  | "smr_foam_roll"
+  | "smr_ball"
+  | "breathwork"
+  | "mobility_drill";
+
+/** PNF contract-relax parameters (schema v1.6.0+). */
+export interface PnfParams {
+  contraction_seconds: number;
+  relax_seconds: number;
+  contractions: number;
+}
+
 export interface RecoveryExercise {
   name: string;
   hold_seconds: number;
   reps: number;
   sides: RecoverySides | null;
+  /** Recovery technique modality (schema v1.6.0+). */
+  modality?: RecoveryModality | null;
+  /** Subjective stretch/work intensity on the 1–10 RPE-style scale (schema v1.6.0+). */
+  intensity_rpe?: number | null;
+  /** PNF contract-relax parameters. Used when modality='pnf' (schema v1.6.0+). */
+  pnf?: PnfParams | null;
+  /** Free-text body region (e.g. 'thoracic_spine', 'piriformis') (schema v1.6.0+). */
+  body_part?: string | null;
   range?: SourceRange;
 }
 
@@ -529,6 +579,55 @@ export interface SubPlan {
 // Progress
 // ---------------------------------------------------------------------------
 
+/** Standardized measurement vocabulary (schema v1.6.0+). */
+export type MeasurementMetric =
+  | "body_weight_kg"
+  | "waist_cm"
+  | "hip_cm"
+  | "body_fat_pct"
+  | "lean_mass_kg"
+  | "resting_hr_bpm"
+  | "hrv_rmssd_ms"
+  | "blood_pressure_systolic_mmhg"
+  | "blood_pressure_diastolic_mmhg"
+  | "vo2max_ml_kg_min"
+  | "six_min_walk_m"
+  | "cooper_test_m"
+  | "one_rm_kg"
+  | "grip_strength_kg"
+  | "vertical_jump_cm"
+  | "sit_and_reach_cm"
+  | "shoulder_flexion_deg"
+  | "sleep_hours_avg"
+  | "session_rpe_avg"
+  | "questionnaire_score"
+  | "photo"
+  | "free_text";
+
+/** Validated self-report instrument (schema v1.6.0+). */
+export type Questionnaire =
+  | "phq9"
+  | "gad7"
+  | "ipaq_short"
+  | "ipaq_long"
+  | "psqi"
+  | "pss10"
+  | "borg_cr10"
+  | "rpe_session";
+
+/**
+ * Typed measurement item for analytics-grade comparability (schema v1.6.0+).
+ * Checkpoint.measurements items can be a plain string (back-compat) or a MeasurementSpec.
+ */
+export interface MeasurementSpec {
+  metric: MeasurementMetric;
+  /** Optional unit override. */
+  unit?: string | null;
+  /** Paired questionnaire instrument when metric = 'questionnaire_score'. */
+  questionnaire?: Questionnaire | null;
+  note?: string | null;
+}
+
 export type CheckpointTrigger =
   | { type: "time"; every: number; unit_count: number }
   | { type: "completion" }
@@ -537,7 +636,8 @@ export type CheckpointTrigger =
 export interface Checkpoint {
   name: string;
   trigger: CheckpointTrigger;
-  measurements: string[] | null;
+  /** Items may be a plain string (back-compat) or a typed MeasurementSpec (v1.6.0+). */
+  measurements: (string | MeasurementSpec)[] | null;
   questions: string[] | null;
   range?: SourceRange;
 }

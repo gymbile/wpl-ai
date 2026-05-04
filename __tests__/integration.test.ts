@@ -107,7 +107,7 @@ describe("compileWplAi() public API", () => {
 
   it("json has correct version field", () => {
     const { json } = compileOk(SIMPLE_PLAN);
-    expect(json.version).toBe("1.0.0");
+    expect(json.version).toBe("1.6.0");
   });
 
   it("json has a plan object with UUID id", () => {
@@ -194,7 +194,7 @@ PHASES
 
   it("has correct schema and version", () => {
     expect(result.json.$schema).toBe("https://wpl.dev/schemas/wpl/v1.schema.json");
-    expect(result.json.version).toBe("1.0.0");
+    expect(result.json.version).toBe("1.6.0");
   });
 
   it("has plan name and type", () => {
@@ -757,7 +757,7 @@ describe("Pipeline stages independently", () => {
     expect(compileResult.ok).toBe(true);
     if (!compileResult.ok) return;
     expect(compileResult.json.$schema).toBe("https://wpl.dev/schemas/wpl/v1.schema.json");
-    expect(compileResult.json.version).toBe("1.0.0");
+    expect(compileResult.json.version).toBe("1.6.0");
   });
 
   it("each stage can fail independently", () => {
@@ -1203,12 +1203,12 @@ describe("JSON structure validation", () => {
     expect(r2.json.$schema).toBe("https://wpl.dev/schemas/wpl/v1.schema.json");
   });
 
-  it("version is always 1.0.0", () => {
+  it("version is always 1.6.0", () => {
     const r1 = compileOk(MINIMAL_PLAN);
-    expect(r1.json.version).toBe("1.0.0");
+    expect(r1.json.version).toBe("1.6.0");
 
     const r2 = compileOk(SIMPLE_PLAN);
-    expect(r2.json.version).toBe("1.0.0");
+    expect(r2.json.version).toBe("1.6.0");
   });
 
   it("plan has UUID id", () => {

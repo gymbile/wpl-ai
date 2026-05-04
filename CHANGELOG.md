@@ -7,6 +7,38 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.9.0] — 2026-05-04
+
+### Added — emit support for WPL schema v1.6.0
+
+- **`Contraindication.severity`** (`"low" | "moderate" | "high"`): new optional
+  clinical-risk tier emitted alongside `condition` and `action`.
+- **`Contraindication.action: "require_clearance"`**: expanded enum; compiler
+  passes it through verbatim (was previously limited to `"exclude" | "modify"`).
+- **`Reps.amrap: boolean`**: set `reps_amrap: true` on an Exercise AST node to
+  emit `{ ..., amrap: true }` in `prescription.reps`.
+- **`ExercisePrescription.to_failure: boolean`**: set `to_failure: true` on an
+  Exercise AST node to emit it into the prescription block.
+- **`Weight.metric`** (`"1RM" | "e1RM" | "training_max" | "daily_max"`):
+  optional reference metric for `percentage_1rm` weight prescriptions.
+- **`Checkpoint.measurements` typed items**: items may now be `string`
+  (back-compat) or a `MeasurementSpec` object `{ metric, unit?, questionnaire?, note? }`.
+  The compiler serialises both transparently.
+- **`RecoveryExercise` v1.6.0 fields**: `modality` (`"static_stretch" |
+  "dynamic_stretch" | "pnf" | "smr_foam_roll" | "smr_ball" | "breathwork" |
+  "mobility_drill"`), `intensity_rpe` (1–10), `pnf` (`{ contraction_seconds,
+  relax_seconds, contractions }`), `body_part` (free string).
+- **New types in `src/types.ts`**: `ContraindicationSeverity`, `WeightMetric`,
+  `RecoveryModality`, `PnfParams`, `MeasurementMetric` (22-value union),
+  `Questionnaire` (8-value union), `MeasurementSpec`.
+- **New vocabulary tables in `src/vocabularies.ts`**: synonym maps for
+  `RecoveryModality`, `MeasurementMetric`, `Questionnaire`,
+  `ContraindicationSeverity`, `ContraindicationAction`, and `WeightMetric`,
+  each with 3–10 natural-language synonyms to canonical enum values.
+- **Compiled `version` bumped to `"1.6.0"`** in all emitted documents.
+- **21 new unit tests** in `__tests__/dsl-v16-features.test.ts` covering all
+  new emit paths.
+
 ## [1.8.1] — 2026-05-03
 
 ### Fixed
