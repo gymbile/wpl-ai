@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { compileWplAi } from "../src/index.js";
+import { validateSemantics } from "../src/validator.js";
+import type { Document, MeasurementSpec, Checkpoint } from "../src/types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -402,5 +404,136 @@ PHASES
     expect(cardioWarnings[1]!.line).toBe(11);
     // And they must not be identical positions.
     expect(cardioWarnings[0]!.line).not.toBe(cardioWarnings[1]!.line);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// MeasurementMetric / MeasurementSpec / Questionnaire (schema v1.6.0)
+// ---------------------------------------------------------------------------
+
+/** Minimal Document factory for direct validator tests. */
+function makeDocWithCheckpoint(measurements: (string | MeasurementSpec)[]): Document {
+  return {
+    header: {
+      name: "Test",
+      type: "workout",
+      visibility: null,
+      difficulty: null,
+      duration: null,
+      tags: null,
+      language: "en",
+      min_app_version: null,
+      schema: null,
+    },
+    goals: null,
+    requirements: null,
+    personalization: null,
+    athlete_thresholds: null,
+    phases: [],
+    progress: {
+      checkpoints: [
+        {
+          name: "Week 4",
+          trigger: { type: "time", every: 4, unit_count: 1 },
+          measurements,
+          questions: null,
+        } as Checkpoint,
+      ],
+      points: null,
+      achievements: null,
+      streaks: null,
+    },
+    notifications: null,
+    rendering: null,
+  };
+}
+
+describe("Semantic validator - MeasurementMetric v1.6.0", () => {
+  const checkpointPreamble = `\
+PLAN "Test"
+TYPE workout
+
+PROGRESS
+  CHECKPOINT "Week 4":
+    at 4 weeks
+    measure:
+`;
+
+  // --- DSL-path tests (exercise the parser → validator pipeline) ---
+
+  it("no warning for typed MeasurementSpec with valid metric body_weight_kg", () => {
+    const source = checkpointPreamble + `      body_weight_kg\n`;
+    const warnings = compileAndGetWarnings(source);
+    const metricWarnings = warnings.filter(w => w.message.includes("measurement metric"));
+    expect(metricWarnings).toHaveLength(0);
+  });
+
+  it("no warning for typed MeasurementSpec questionnaire_score with valid questionnaire psqi", () => {
+    const source = checkpointPreamble + `      questionnaire_score questionnaire psqi\n`;
+    const warnings = compileAndGetWarnings(source);
+    const metricWarnings = warnings.filter(w =>
+      w.message.includes("measurement metric") || w.message.includes("questionnaire"),
+    );
+    expect(metricWarnings).toHaveLength(0);
+  });
+
+  it("no warning for legacy string 'weight' (back-compat, quoted form in DSL)", () => {
+    // "weight" is in the legacy MEASUREMENT_METRICS vocabulary. Written as a quoted
+    // string in the DSL it becomes a plain string item and must not produce a warning.
+    const source = checkpointPreamble + `      "weight"\n`;
+    const warnings = compileAndGetWarnings(source);
+    const metricWarnings = warnings.filter(w => w.message.includes("measurement metric"));
+    expect(metricWarnings).toHaveLength(0);
+  });
+
+  it("warns for plain string measurement item with unknown metric 'totally_made_up'", () => {
+    // A bare-word unknown value is emitted as a plain string by the parser and must
+    // produce a "measurement metric" warning.
+    const source = checkpointPreamble + `      - totally_made_up\n`;
+    const warnings = compileAndGetWarnings(source);
+    const metricWarnings = warnings.filter(w => w.message.includes("measurement metric"));
+    expect(metricWarnings.length).toBeGreaterThan(0);
+    expect(metricWarnings[0]!.message).toContain("totally_made_up");
+  });
+
+  // --- Direct-AST tests (bypass parser; exercise validator object-path logic) ---
+
+  it("no warning for typed MeasurementSpec { metric: 'body_weight_kg' } (direct AST)", () => {
+    const doc = makeDocWithCheckpoint([{ metric: "body_weight_kg" } as MeasurementSpec]);
+    const warnings = validateSemantics(doc, "");
+    const metricWarnings = warnings.filter(w => w.message.includes("measurement metric"));
+    expect(metricWarnings).toHaveLength(0);
+  });
+
+  it("no warning for { metric: 'questionnaire_score', questionnaire: 'psqi' } (direct AST)", () => {
+    const doc = makeDocWithCheckpoint([
+      { metric: "questionnaire_score", questionnaire: "psqi" } as MeasurementSpec,
+    ]);
+    const warnings = validateSemantics(doc, "");
+    const relevant = warnings.filter(w =>
+      w.message.includes("measurement metric") || w.message.includes("questionnaire"),
+    );
+    expect(relevant).toHaveLength(0);
+  });
+
+  it("warns for { metric: 'questionnaire_score', questionnaire: 'phq' } — 'phq' is not a valid questionnaire enum value", () => {
+    // The valid value is "phq9"; "phq" must trigger a questionnaire warning.
+    const doc = makeDocWithCheckpoint([
+      { metric: "questionnaire_score", questionnaire: "phq" as never } as MeasurementSpec,
+    ]);
+    const warnings = validateSemantics(doc, "");
+    const questWarnings = warnings.filter(w => w.message.includes("questionnaire"));
+    expect(questWarnings.length).toBeGreaterThan(0);
+    expect(questWarnings[0]!.message).toContain("phq");
+  });
+
+  it("warns for { metric: 'totally_made_up' } — unknown metric in typed spec (direct AST)", () => {
+    const doc = makeDocWithCheckpoint([
+      { metric: "totally_made_up" as never } as MeasurementSpec,
+    ]);
+    const warnings = validateSemantics(doc, "");
+    const metricWarnings = warnings.filter(w => w.message.includes("measurement metric"));
+    expect(metricWarnings.length).toBeGreaterThan(0);
+    expect(metricWarnings[0]!.message).toContain("totally_made_up");
   });
 });

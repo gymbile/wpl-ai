@@ -30,6 +30,8 @@ import {
   EQUIPMENT, EQUIPMENT_SET,
   FITNESS_LEVELS, FITNESS_LEVEL_SET,
   MEASUREMENT_METRICS, MEASUREMENT_METRIC_SET,
+  MEASUREMENT_METRIC_ENUM_VALUES, MEASUREMENT_METRIC_ENUM_SET,
+  QUESTIONNAIRE_VALUES, QUESTIONNAIRE_SET,
   WEIGHT_UNITS, WEIGHT_UNIT_SET,
   MUSCLE_GROUP_SET,
   STREAK_TYPES, STREAK_TYPE_SET,
@@ -187,7 +189,10 @@ function validateGoalCategories(
     if (goal.target) {
       // Target sub-node has no range yet; fall back to the goal's range.
       // TODO(Refactor C): once Target carries a range, use it directly.
-      checkVocabulary(goal.target.metric, "measurement metric", MEASUREMENT_METRIC_SET, MEASUREMENT_METRICS, goal.range, sm, warnings);
+      // Accept both the legacy vocabulary and the v1.6.0 enum values.
+      const combinedMetricSet = new Set<string>([...MEASUREMENT_METRIC_SET, ...MEASUREMENT_METRIC_ENUM_SET]);
+      const combinedMetricValues = [...MEASUREMENT_METRICS, ...MEASUREMENT_METRIC_ENUM_VALUES.filter(v => !MEASUREMENT_METRIC_SET.has(v))];
+      checkVocabulary(goal.target.metric, "measurement metric", combinedMetricSet, combinedMetricValues, goal.range, sm, warnings);
       if (goal.target.unit) {
         checkWeightOrDistanceUnit(goal.target.unit, goal.range, sm, warnings);
       }
@@ -288,10 +293,19 @@ function validateProgress(
 
   for (const cp of progress.checkpoints ?? []) {
     for (const m of cp.measurements ?? []) {
-      // 1.6.0: items can be a free string (legacy/free-text) or a typed MeasurementSpec.
-      // Only legacy strings need vocabulary linting; typed specs are already validated by the schema.
       if (typeof m === "string") {
-        checkVocabulary(m, "measurement metric", MEASUREMENT_METRIC_SET, MEASUREMENT_METRICS, cp.range, sm, warnings);
+        // Legacy string form: validate against combined legacy + v1.6.0 enum vocabulary.
+        const combinedMetricSet = new Set<string>([...MEASUREMENT_METRIC_SET, ...MEASUREMENT_METRIC_ENUM_SET]);
+        const combinedMetricValues = [...MEASUREMENT_METRICS, ...MEASUREMENT_METRIC_ENUM_VALUES.filter(v => !MEASUREMENT_METRIC_SET.has(v))];
+        checkVocabulary(m, "measurement metric", combinedMetricSet, combinedMetricValues, cp.range, sm, warnings);
+      } else {
+        // Typed MeasurementSpec (v1.6.0+): validate m.metric against the enum set.
+        checkVocabulary(m.metric, "measurement metric", MEASUREMENT_METRIC_ENUM_SET, MEASUREMENT_METRIC_ENUM_VALUES, cp.range, sm, warnings);
+        // When metric is "questionnaire_score", also validate the questionnaire field.
+        if (m.metric === "questionnaire_score" && m.questionnaire) {
+          checkVocabulary(m.questionnaire, "questionnaire", QUESTIONNAIRE_SET, QUESTIONNAIRE_VALUES, cp.range, sm, warnings);
+        }
+        // m.note and m.unit are free strings per schema — no vocabulary check needed.
       }
     }
   }
