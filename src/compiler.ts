@@ -733,7 +733,10 @@ function compileReps(
   let result: Record<string, unknown> = {};
 
   if (typeof reps === "number") {
-    result = { target: reps };
+    // When amrap is true, reps=0 is the sentinel meaning "AMRAP only" — omit target.
+    if (reps !== 0 || !amrap) {
+      result = { target: reps };
+    }
   } else if (Array.isArray(reps)) {
     if (reps.length === 3) {
       result = { min: reps[0], max: reps[1], target: reps[2] };
