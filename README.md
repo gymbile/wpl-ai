@@ -424,6 +424,12 @@ Releases are tagged on the GitHub repo and published to [npm](https://www.npmjs.
 
 ---
 
+## Conformance
+
+The compile-conformance corpus lives in the sibling [`gymbile/wpl`](https://github.com/gymbile/wpl) repo at `conformance/compile/fixtures/`. The runner at `__tests__/conformance.test.ts` discovers it automatically via a relative path (`../../wpl/conformance/compile/fixtures/`) — check out `wpl/` next to `wpl-ai/` on disk and it works with no configuration. Set `WPL_CORPUS_DIR` to override the path (useful for CI that checks out repos at arbitrary locations). Run with `npm test -- conformance`. When the corpus is absent, the suite skips cleanly and exits 0.
+
+---
+
 ## Stability
 
 - **Public API surface**: `compileWplAi` and the types it returns are stable. Re-exports of validator types follow `@gymbile/wpl-validator`'s semver.
