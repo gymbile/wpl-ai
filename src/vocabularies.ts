@@ -249,7 +249,9 @@ export const RECOVERY_MODALITY_SYNONYMS: Record<string, string> = {
   "proprioceptive neuromuscular facilitation": "pnf",
   // smr_foam_roll
   "foam roll": "smr_foam_roll",
+  "foam_roll": "smr_foam_roll",
   "foam roller": "smr_foam_roll",
+  "foam_roller": "smr_foam_roll",
   "foam rolling": "smr_foam_roll",
   "smr foam roll": "smr_foam_roll",
   "self-myofascial release foam": "smr_foam_roll",
