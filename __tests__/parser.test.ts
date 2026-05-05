@@ -278,9 +278,9 @@ TYPE workout`);
     expect(doc.header.tags).toEqual(["strength", "hypertrophy", "beginner"]);
   });
 
-  it("LANGUAGE is always en regardless of source", () => {
+  it("LANGUAGE directive is respected and passed through to the AST", () => {
     const doc = parseOk(`PLAN "A"\nTYPE workout\nLANGUAGE pt`);
-    expect(doc.header.language).toBe("en");
+    expect(doc.header.language).toBe("pt");
   });
 
   it("parses DURATION field", () => {
