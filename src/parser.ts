@@ -113,6 +113,7 @@ import {
   WEIGHT_METRIC_SYNONYMS,
   MEASUREMENT_METRIC_ENUM_SET,
   QUESTIONNAIRE_SET,
+  RECOVERY_MODALITY_SYNONYMS,
 } from "./vocabularies.js";
 
 // ---------------------------------------------------------------------------
@@ -283,7 +284,7 @@ function parseHeader(state: ParseState): Header | null {
     difficulty: (attrs.difficulty as Difficulty) ?? null,
     duration: (attrs.duration as Duration) ?? null,
     tags: (attrs.tags as string[]) ?? null,
-    language: "en", // WPL-AI is always English
+    language: (attrs.language as string) ?? "en",
     min_app_version: (attrs.min_app_version as string) ?? null,
     schema: (attrs.schema as string) ?? null,
   };
@@ -2295,6 +2296,11 @@ function parseExerciseModifiers(
         advance(state);
         modifiers.to_failure = true;
         continue;
+      case "bodyweight":
+        // `pull_up 3x8 bodyweight` — bare bodyweight keyword as weight modifier
+        advance(state);
+        modifiers.weight = { type: "bodyweight", value: null, unit: null };
+        continue;
       case "muscles": {
         advance(state);
         const { primary, secondary } = parseMuscleSpec(state);
@@ -3138,6 +3144,13 @@ function parseRecoveryExercise(state: ParseState): RecoveryExercise {
         if (RECOVERY_MODALITY_SET_GRAMMAR.has(modalStr)) {
           modality = modalStr as import("./types.js").RecoveryModality;
           advance(state);
+        } else {
+          // Resolve via synonym map (e.g. foam_roll → smr_foam_roll)
+          const resolved = RECOVERY_MODALITY_SYNONYMS[modalStr];
+          if (resolved !== undefined) {
+            modality = resolved as import("./types.js").RecoveryModality;
+            advance(state);
+          }
         }
       }
       continue;
@@ -3299,8 +3312,8 @@ function parseHabitActivity(state: ParseState): Habit {
   return {
     kind: "habit",
     category,
-    target: (attrs.target as number) ?? 0,
-    target_unit: (attrs.target_unit as string) ?? "",
+    target: (attrs.target as number) ?? null,
+    target_unit: (attrs.target_unit as string) ?? null,
     frequency: (attrs.frequency as string) ?? null,
     reminders: (attrs.reminders as string[]) ?? null,
     range: makeRange(state, fromOffset),
