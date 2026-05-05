@@ -78,6 +78,7 @@ import {
   missingRequired,
   invalidValue,
   unknownExerciseRef,
+  invalidStructure,
 } from "./errors.js";
 
 import { validateExercise } from "./exercise-matcher.js";
@@ -208,6 +209,15 @@ function skipDedents(state: ParseState): void {
 
 function addError(state: ParseState, error: ParseError): void {
   state.errors.push(error);
+}
+
+/** Skip all tokens until the next newline, dedent, or eof (does not consume the terminator). */
+function skipToEndOfLine(state: ParseState): void {
+  while (true) {
+    const t = currentToken(state);
+    if (t.type === "newline" || t.type === "dedent" || t.type === "eof") break;
+    advance(state);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -775,8 +785,30 @@ function parseRequiresBody(
           expectIndent(state);
           attrs.time_commitment = parseTimeCommitment(state);
           continue;
-        default:
-          break;
+        default: {
+          // Collect the unrecognised directive text for the error message.
+          // Consume tokens until end-of-line so parsing can resume at the
+          // next directive rather than silently terminating the block.
+          const directiveName = String(tok.value);
+          const directiveLoc = tok.location;
+          advance(state); // skip the unrecognised keyword
+          const rest: string[] = [];
+          while (true) {
+            const t = currentToken(state);
+            if (t.type === "newline" || t.type === "dedent" || t.type === "eof") break;
+            rest.push(String(t.value ?? ""));
+            advance(state);
+          }
+          const lineText = rest.length > 0 ? `${directiveName} ${rest.join(" ")}` : directiveName;
+          addError(
+            state,
+            invalidStructure(
+              `Unknown REQUIRES directive: '${lineText}'. Recognized: contraindication, fitness, equipment, age, time_commitment.`,
+              directiveLoc,
+            ),
+          );
+          continue;
+        }
       }
     }
 
@@ -785,7 +817,33 @@ function parseRequiresBody(
       break;
     }
 
-    break;
+    if (tok.type === "eof" || tok.type === "newline") {
+      break;
+    }
+
+    // Any other token (e.g. bare_word used as an unknown directive) —
+    // collect the line as an unknown directive and emit an error.
+    {
+      const directiveName = String(tok.value ?? "");
+      const directiveLoc = tok.location;
+      advance(state); // skip the unknown token
+      const rest: string[] = [];
+      while (true) {
+        const t = currentToken(state);
+        if (t.type === "newline" || t.type === "dedent" || t.type === "eof") break;
+        rest.push(String(t.value ?? ""));
+        advance(state);
+      }
+      const lineText = rest.length > 0 ? `${directiveName} ${rest.join(" ")}` : directiveName;
+      addError(
+        state,
+        invalidStructure(
+          `Unknown REQUIRES directive: '${lineText}'. Recognized: contraindication, fitness, equipment, age, time_commitment.`,
+          directiveLoc,
+        ),
+      );
+      continue;
+    }
   }
 
   return attrs;
@@ -830,6 +888,19 @@ function parseEquipmentFlags(
     expectRparen(state);
     return flags;
   }
+  // Also handle bare `required` / `optional` keyword without parentheses
+  // (inline form: `equipment sandbag required`).
+  const tok = currentToken(state);
+  if (tok.type === "keyword") {
+    if (tok.value === "required") {
+      advance(state);
+      return { required: true };
+    }
+    if (tok.value === "optional") {
+      advance(state);
+      return { required: false };
+    }
+  }
   return {};
 }
 
@@ -871,9 +942,28 @@ function parseEquipmentFlagsContent(
   return flags;
 }
 
+/**
+ * Reads a contraindication condition name, which may be a plain identifier
+ * or a colon-qualified identifier (e.g. icd10:M54.5, acsm:cardiac_rehab_phase_2,
+ * snomed:72704001, acog:pregnancy).
+ *
+ * The lexer emits prefix, colon, and suffix as three separate tokens; this
+ * helper glues them into a single string.
+ */
+function expectContraindicationName(state: ParseState): string {
+  const first = expectBareWord(state);
+  // Check for a colon token immediately following (qualified name form).
+  if (currentToken(state).type === "colon") {
+    advance(state); // consume ":"
+    const rest = expectBareWord(state);
+    return `${first}:${rest}`;
+  }
+  return first;
+}
+
 function parseContraindication(state: ParseState): Contraindication {
   advance(state); // skip "contraindication"
-  const condition = expectBareWord(state);
+  const condition = expectContraindicationName(state);
 
   // Support two forms:
   // v1.6.0 new form:  contraindication <name> [severity <level>] [action <action>]
@@ -1717,6 +1807,18 @@ function parsePhase(state: ParseState): Phase {
   if (peek.type === "keyword" && PHASE_TYPE_SET.has(peek.value as string)) {
     phaseType = peek.value as import("./types.js").PhaseType;
     advance(state);
+  } else if (peek.type === "bare_word" || peek.type === "keyword") {
+    // A word appears in the phase-type slot that is not a recognised phase type.
+    // Emit an error and consume the unknown word so parsing can continue.
+    const unknown = String(peek.value);
+    addError(
+      state,
+      invalidStructure(
+        `Unknown phase type '${unknown}'. Allowed: ${[...PHASE_TYPE_SET].join(", ")}.`,
+        peek.location,
+      ),
+    );
+    advance(state);
   }
 
   expectLparen(state);
@@ -2042,7 +2144,10 @@ function parseBlockBody(
     }
 
     if (tok.type === "bare_word") {
-      if (blockType === "cooldown") {
+      if (blockType === "cooldown" && isCooldownCardioPattern(state)) {
+        // `<modality> <duration>` in a cooldown block — treat as inline CardioActivity.
+        activities.push(parseCooldownInlineCardio(state));
+      } else if (blockType === "cooldown") {
         activities.push(parseRecoveryExerciseAsActivity(state));
       } else {
         activities.push(parseExerciseOrSimpleActivity(state));
@@ -2059,6 +2164,65 @@ function parseBlockBody(
   }
 
   return { attrs, activities };
+}
+
+// ---------------------------------------------------------------------------
+// Cooldown inline cardio detection + parsing
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns true if the current token stream matches the inline cardio pattern:
+ *   bare_word  number  time_unit_bare_word  (newline | dedent | eof)
+ * (i.e. `jogging 10m` or `walking 5m`) — which should be parsed as an
+ * inline cardio activity in a cooldown block rather than as a recovery exercise.
+ *
+ * This is deliberately narrow: it only matches when the duration is the LAST
+ * thing on the line (no trailing `x<reps>` or `sides` tokens), which avoids
+ * misclassifying recovery exercises like `chest_stretch 30s x2 sides both`.
+ */
+function isCooldownCardioPattern(state: ParseState): boolean {
+  const t0 = state.tokens[state.pos];
+  const t1 = state.tokens[state.pos + 1];
+  const t2 = state.tokens[state.pos + 2];
+  const t3 = state.tokens[state.pos + 3];
+  if (!t0 || !t1 || !t2) return false;
+  if (t0.type !== "bare_word") return false;
+  if (t1.type !== "number") return false;
+  // t2 must be a time-unit bare_word (m, s, h, d, minutes, seconds, hours)
+  if (t2.type !== "bare_word") return false;
+  if (!TIME_UNIT_SHORT_SET.has(String(t2.value))) return false;
+  // t3 must be newline, dedent, or eof — nothing else after the duration.
+  // If there's more (e.g. "x2", "sides"), it's a recovery exercise.
+  if (!t3) return true;
+  return t3.type === "newline" || t3.type === "dedent" || t3.type === "eof";
+}
+
+/**
+ * Parses a `<modality> <duration>` inline cardio activity inside a cooldown
+ * block. Produces a `Cardio` AST node with `category: "cooldown"`.
+ */
+function parseCooldownInlineCardio(state: ParseState): Cardio {
+  const fromOffset = currentOffset(state);
+  const modality = expectBareWord(state);                    // e.g. "jogging"
+  const durationValue = expectNumber(state);                 // e.g. 10
+  const unitTok = currentToken(state);
+  const unit: TimeUnit = TIME_UNIT_SHORT_SET.has(String(unitTok.value))
+    ? parseTimeUnit(String(unitTok.value))
+    : "minutes";
+  if (unitTok.type === "bare_word" && TIME_UNIT_SHORT_SET.has(String(unitTok.value))) {
+    advance(state); // consume the unit token
+  }
+
+  return {
+    kind: "cardio",
+    modality,
+    cardio_type: "continuous",
+    total_duration: { value: durationValue, unit },
+    zone: null,
+    intensity: null,
+    intervals: null,
+    range: makeRange(state, fromOffset),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -3576,6 +3740,23 @@ function parseCheckpointBody(
 function parseTrigger(state: ParseState): CheckpointTrigger {
   const tok = currentToken(state);
 
+  // `completion` may be tokenised as bare_word (not in the keyword list) or
+  // as keyword. Handle both token types so the error is always emitted.
+  const tokValue = String(tok.value ?? "");
+  if (tokValue === "completion" && (tok.type === "keyword" || tok.type === "bare_word")) {
+    // "trigger completion" (no-arg) is not a supported form.
+    // The caller should use `at N weeks` or `at N days` instead.
+    addError(
+      state,
+      invalidStructure(
+        "Unsupported checkpoint trigger 'completion' — use 'at N weeks' or 'at N days'.",
+        tok.location,
+      ),
+    );
+    advance(state);
+    return { type: "manual" };
+  }
+
   if (tok.type === "keyword") {
     switch (tok.value) {
       case "time": {
@@ -3590,9 +3771,6 @@ function parseTrigger(state: ParseState): CheckpointTrigger {
           unit_count: Math.trunc(day),
         };
       }
-      case "completion":
-        advance(state);
-        return { type: "completion" };
       case "manual":
         advance(state);
         return { type: "manual" };
@@ -4161,7 +4339,45 @@ function parseTimeUnit(unit: string): TimeUnit {
 // ---------------------------------------------------------------------------
 
 function parseTagList(state: ParseState): string[] {
-  return parseEnumList(state);
+  // Tags may begin with a digit (e.g. "531", "1rm_estimate").
+  // The lexer tokenises digit-leading text as a number followed by an
+  // identifier, so we need to accept number tokens here and also detect
+  // the digit-prefix + identifier continuation pattern (e.g. 1 + rm_estimate
+  // → "1rm_estimate").
+  const items: string[] = [];
+
+  for (;;) {
+    const tok = currentToken(state);
+
+    if (tok.type === "bare_word" || tok.type === "keyword") {
+      items.push(tok.value as string);
+      advance(state);
+      maybeSkipComma(state);
+      continue;
+    }
+
+    if (tok.type === "number") {
+      // Could be a plain digit tag ("531") or the prefix of a digit-leading
+      // identifier ("1rm_estimate"). Peek at the next token to decide.
+      const numStr = String(tok.value as number);
+      advance(state);
+      const next = currentToken(state);
+      if (next.type === "bare_word" || next.type === "keyword") {
+        // Digit-leading identifier: concatenate without separator.
+        items.push(numStr + (next.value as string));
+        advance(state);
+      } else {
+        // Plain numeric tag.
+        items.push(numStr);
+      }
+      maybeSkipComma(state);
+      continue;
+    }
+
+    break;
+  }
+
+  return items;
 }
 
 function parseEnumList(state: ParseState): string[] {
