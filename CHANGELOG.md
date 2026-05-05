@@ -7,6 +7,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.10.2] — 2026-05-04
+
+### Fixed
+
+- **validator: refresh MeasurementMetric + Questionnaire vocabulary to schema 1.6.0**: replace the legacy 16-value `MEASUREMENT_METRICS` array with the canonical 24-value `MeasurementMetric` enum; add `Questionnaire` (8 values) lookup set; recognize typed `MeasurementSpec` items in checkpoint measurements — `m.metric` is validated against the enum set, and `m.questionnaire` is validated against the questionnaire set when `metric === "questionnaire_score"`.
+
 ## [1.10.1] — 2026-05-04
 
 ### Fixed — corpus-driven bug fixes (5)
