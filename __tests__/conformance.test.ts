@@ -42,13 +42,15 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  *  1. Keys are deep-sorted (via JSON.stringify sort-keys in deepSort).
  *  2. Auto-generated IDs (^[a-z0-9_]+_\d+$ and _block suffix) → "<AUTO_ID>".
  *  3. UUID-format plan IDs → "<UUID>".
- *  4. `metadata.created_at`, `metadata.updated_at`, `metadata.language` → removed.
- *  5. `name` field on activity objects (type: exercise|cardio|nutrition|recovery) → removed.
- *  6. Whole-number floats → integers (1.0 → 1).
+ *  4. `metadata.created_at`, `metadata.updated_at` → removed (runtime timestamps).
+ *  5. Whole-number floats → integers (1.0 → 1).
+ *
+ * Note: `metadata.language` and activity `name` fields are no longer stripped.
+ * Both compilers now emit these identically (TS parity as of wpl-ai-ex v1.6.1).
  */
-function normalize(value: unknown, key?: string, inActivity = false): unknown {
+function normalize(value: unknown, key?: string): unknown {
   if (Array.isArray(value)) {
-    return value.map((item) => normalize(item, key, inActivity));
+    return value.map((item) => normalize(item, key));
   }
 
   if (value !== null && typeof value === "object") {
@@ -57,22 +59,11 @@ function normalize(value: unknown, key?: string, inActivity = false): unknown {
     // Sort keys alphabetically
     for (const k of Object.keys(obj).sort()) {
       const v = obj[k];
-      // Strip runtime metadata fields
-      if (key === "metadata" && (k === "created_at" || k === "updated_at" || k === "language")) {
+      // Strip runtime metadata timestamp fields only
+      if (key === "metadata" && (k === "created_at" || k === "updated_at")) {
         continue;
       }
-      // Strip auto-derived display names from exercise/cardio/nutrition/recovery activities
-      if (
-        k === "name" &&
-        inActivity &&
-        typeof obj["type"] === "string" &&
-        ["exercise", "cardio", "nutrition", "recovery"].includes(obj["type"] as string)
-      ) {
-        continue;
-      }
-      // Child "activities" arrays contain activity objects
-      const childInActivity = k === "activities";
-      result[k] = normalize(v, k, childInActivity);
+      result[k] = normalize(v, k);
     }
     return result;
   }
