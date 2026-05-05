@@ -7,6 +7,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.10.1] — 2026-05-04
+
+### Fixed — corpus-driven bug fixes (5)
+
+- **Bug 1 — `bodyweight` keyword in exercise modifier chain**: `pull_up 3x8 bodyweight` now emits `prescription.weight: { type: "bodyweight" }` (was silently dropped).
+- **Bug 2 — Habit without explicit `target` emits phantom `target: { value: 0 }`**: `prescription.target` is now omitted entirely when no `target` keyword is present in the habit block.
+- **Bug 3 — `LANGUAGE <non-en>` directive ignored**: the parsed language code is now passed through to `metadata.language`; `"en"` is the default only when the directive is absent.
+- **Bug 4 — `1xAMRAP` emits phantom `reps.target: 0`**: AMRAP-only sets now emit `reps: { amrap: true }` with no `target` field.
+- **Bug 5 — `modality foam_roll` creates phantom new exercise**: `foam_roll` (and `foam_roller`) are now resolved via the synonym map to `smr_foam_roll`, attaching correctly as a modality value instead of being mis-parsed as a fresh exercise name.
+
 ## [1.10.0] — 2026-05-04
 
 ### Added — DSL grammar surfaces for WPL schema v1.6.0
