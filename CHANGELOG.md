@@ -7,6 +7,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.10.3] — 2026-05-05
+
+### Fixed
+
+- **compiler: emit `progress.points_system` instead of `progress.points`** — the schema's `Progress` defines the field as `points_system`; the previous `points` key was silently rejected by the validator (`SCHEMA_VIOLATION /plan/progress`). Surfaced by the corpus runner's new post-compile validation.
+- **compiler: thread activity-ID counter across blocks within a Day** — auto-IDs were previously per-block, so two blocks within the same day each starting an activity sequence produced colliding `exercise_1`, `sub_plan_1`, etc. Validators now correctly catch DUPLICATE_ID across blocks.
+
 ## [1.10.2] — 2026-05-04
 
 ### Fixed
