@@ -1807,7 +1807,7 @@ PROGRESS
     const checkpoints = progress.checkpoints as Record<string, unknown>[];
     expect(checkpoints).toHaveLength(1);
     expect(checkpoints[0].name).toBe("Weekly Check");
-    const points = progress.points as Record<string, unknown>;
+    const points = progress.points_system as Record<string, unknown>;
     expect(points.enabled).toBe(true);
     // Note: points.rules is null due to a parser limitation where
     // parsePointsRules doesn't skip newlines before checking for indent.
@@ -2084,7 +2084,7 @@ PROGRESS
   it("compiles points config as enabled", () => {
     const plan = compilePlan(PROGRESS_SOURCE);
     const progress = plan.progress as Record<string, unknown>;
-    const points = progress.points as Record<string, unknown>;
+    const points = progress.points_system as Record<string, unknown>;
     expect(points.enabled).toBe(true);
   });
 
@@ -2113,7 +2113,7 @@ PROGRESS
     if (result.ok) {
       const plan = result.json.plan as Record<string, unknown>;
       const progress = plan.progress as Record<string, unknown>;
-      const points = progress.points as Record<string, unknown>;
+      const points = progress.points_system as Record<string, unknown>;
       const rules = points.rules as Record<string, unknown>[];
       expect(rules).toHaveLength(2);
       expect(rules[0].event).toBe("workout_completed");

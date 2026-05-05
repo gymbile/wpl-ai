@@ -16,6 +16,7 @@
 
 import { describe, it, expect } from "vitest";
 import { compileWplAi } from "../src/index.js";
+import { validate } from "@gymbile/wpl-validator";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -154,6 +155,16 @@ describe("compile-conformance corpus", () => {
       const want = normalizedJson(expected);
 
       expect(got).toBe(want);
+
+      // Pass-1 schema + pass-2 semantic validation must produce zero errors.
+      const v = validate(result.json);
+      const validationErrors = v.errors.filter((e) => e.severity === "error");
+      if (validationErrors.length > 0) {
+        throw new Error(
+          `[conformance/${label}] compiled output failed validation:\n` +
+          validationErrors.map((e) => `  ${e.code} ${e.path}: ${e.message}`).join("\n"),
+        );
+      }
     });
   }
 });

@@ -28,8 +28,9 @@ PHASES
     WEEK 1:
       DAY Monday training 35m "Upper Body Focus":
         warmup:
-          arm_circles 2m
-          jumping_jack 2m
+          recovery warmup:
+            arm_circles 120s x1 modality dynamic_stretch
+            jumping_jack 120s x1 modality dynamic_stretch
         main straight_sets:
           push_up 3x8..12 rpe 7 rest 60 seconds
           dumbbell_row 3x10 weight 10 kg rest 60 seconds
@@ -76,8 +77,9 @@ PHASES
     WEEK 1:
       DAY Wednesday training 25m "Full Body HIIT":
         warmup:
-          jumping_jack 2m
-          high_knees 1m
+          recovery warmup:
+            jumping_jack 120s x1 modality dynamic_stretch
+            high_knees 60s x1 modality dynamic_stretch
         main circuit:
           rounds 4
           rest_between_rounds 90 seconds
@@ -141,7 +143,8 @@ PHASES
       # Active Wednesday: cardio + breathing meditation
       DAY Wednesday training 45m "Active Wednesday":
         warmup:
-          jumping_jack 3m
+          recovery warmup:
+            jumping_jack 180s x1 modality dynamic_stretch
         main:
           cardio running continuous:
             total 20 minutes

@@ -288,11 +288,11 @@ PROGRESS
 
     const result = compile(ast);
     if (!result.ok) throw new Error("compile failed");
-    expect(result.pointerMap.get("/plan/progress/points/rules/0")).toEqual({
+    expect(result.pointerMap.get("/plan/progress/points_system/rules/0")).toEqual({
       from: 5,
       to: 25,
     });
-    expect(result.pointerMap.get("/plan/progress/points/rules/1")).toEqual({
+    expect(result.pointerMap.get("/plan/progress/points_system/rules/1")).toEqual({
       from: 30,
       to: 50,
     });

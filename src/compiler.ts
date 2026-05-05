@@ -552,8 +552,12 @@ function compileDay(
     }
   }
   if (day.blocks && day.blocks.length > 0) {
+    // Use a shared counter so activity IDs are unique within the day scope
+    // across all blocks (prevents DUPLICATE_ID when the same activity kind
+    // appears in multiple blocks, e.g. sub_plan in warmup and cooldown).
+    const activityCounter = { value: 0 };
     compiled.blocks = ctx.withSegment("blocks", undefined, () =>
-      compileBlocks(day.blocks, ctx),
+      compileBlocks(day.blocks, activityCounter, ctx),
     );
   }
 
@@ -564,15 +568,20 @@ function compileDay(
 // Blocks
 // ---------------------------------------------------------------------------
 
-function compileBlocks(blocks: Block[], ctx: CompileContext): Record<string, unknown>[] {
+function compileBlocks(
+  blocks: Block[],
+  activityCounter: { value: number },
+  ctx: CompileContext,
+): Record<string, unknown>[] {
   return blocks.map((block, i) =>
-    ctx.withSegment(i, block, () => compileBlock(block, i + 1, ctx)),
+    ctx.withSegment(i, block, () => compileBlock(block, i + 1, activityCounter, ctx)),
   );
 }
 
 function compileBlock(
   block: Block,
   index: number,
+  activityCounter: { value: number },
   ctx: CompileContext,
 ): Record<string, unknown> {
   const compiled: Record<string, unknown> = {
@@ -592,9 +601,10 @@ function compileBlock(
   }
   if (block.activities && block.activities.length > 0) {
     compiled.activities = ctx.withSegment("activities", undefined, () =>
-      block.activities.map((act, i) =>
-        ctx.withSegment(i, act, () => compileActivity(act, i + 1, ctx)),
-      ),
+      block.activities.map((act, i) => {
+        activityCounter.value += 1;
+        return ctx.withSegment(i, act, () => compileActivity(act, activityCounter.value, ctx));
+      }),
     );
   }
 
@@ -1078,7 +1088,7 @@ function compileProgress(
   }
 
   if (progress.points) {
-    compiled.points = ctx.withSegment("points", progress.points, () =>
+    compiled.points_system = ctx.withSegment("points_system", progress.points, () =>
       compilePointsConfig(progress.points!, ctx),
     );
   }

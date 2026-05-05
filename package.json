@@ -55,7 +55,7 @@
   },
   "license": "Apache-2.0",
   "dependencies": {
-    "@gymbile/wpl-validator": "^1.6.0",
+    "@gymbile/wpl-validator": "^1.6.5",
     "ajv": "^8.18.0"
   },
   "devDependencies": {
