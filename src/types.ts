@@ -547,8 +547,8 @@ export interface Recovery {
 export interface Habit {
   kind: "habit";
   category: string;
-  target: number;
-  target_unit: string;
+  target: number | null;
+  target_unit: string | null;
   frequency: string | null;
   reminders: string[] | null; // HH:MM strings
   range?: SourceRange;
