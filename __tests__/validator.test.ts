@@ -322,6 +322,129 @@ GOALS
     });
   });
 
+  describe("vocabulary gap additions (v1.10.5)", () => {
+    it("no warning for goal category 'recovery'", () => {
+      const source = `\
+PLAN "Recovery Plan"
+TYPE recovery
+
+GOALS
+  GOAL primary recovery:
+    name "Recover well"
+`;
+      const warnings = compileAndGetWarnings(source);
+      const goalWarnings = warnings.filter(w => w.message.includes("goal category"));
+      expect(goalWarnings).toHaveLength(0);
+    });
+
+    it("no warning for cardio modality 'walking'", () => {
+      const source = `\
+PLAN "Test"
+TYPE workout
+
+PHASES
+  PHASE "Main" (1 weeks):
+    WEEK 1:
+      DAY Monday training 30m:
+        main:
+          cardio walking continuous:
+            total 30 min
+`;
+      const warnings = compileAndGetWarnings(source);
+      const cardioWarnings = warnings.filter(w => w.message.includes("cardio modality"));
+      expect(cardioWarnings).toHaveLength(0);
+    });
+
+    it("no warning for cardio modality 'hiking'", () => {
+      const source = `\
+PLAN "Test"
+TYPE workout
+
+PHASES
+  PHASE "Main" (1 weeks):
+    WEEK 1:
+      DAY Monday training 60m:
+        main:
+          cardio hiking continuous:
+            total 60 min
+`;
+      const warnings = compileAndGetWarnings(source);
+      const cardioWarnings = warnings.filter(w => w.message.includes("cardio modality"));
+      expect(cardioWarnings).toHaveLength(0);
+    });
+
+    it("no warning for nutrition category 'post_workout'", () => {
+      const source = `\
+PLAN "Test"
+TYPE nutrition
+
+PHASES
+  PHASE "Main" (1 weeks):
+    WEEK 1:
+      DAY Monday training 30m:
+        nutrition:
+          nutrition post_workout:
+            name "Protein shake"
+`;
+      const warnings = compileAndGetWarnings(source);
+      const nutritionWarnings = warnings.filter(w => w.message.includes("nutrition category"));
+      expect(nutritionWarnings).toHaveLength(0);
+    });
+
+    it("no warning for nutrition category 'daily_target'", () => {
+      const source = `\
+PLAN "Test"
+TYPE nutrition
+
+PHASES
+  PHASE "Main" (1 weeks):
+    WEEK 1:
+      DAY Monday training 30m:
+        nutrition:
+          nutrition daily_target:
+            name "Daily macros"
+`;
+      const warnings = compileAndGetWarnings(source);
+      const nutritionWarnings = warnings.filter(w => w.message.includes("nutrition category"));
+      expect(nutritionWarnings).toHaveLength(0);
+    });
+
+    it("no warning for habit category 'water_intake'", () => {
+      const source = `\
+PLAN "Test"
+TYPE hybrid
+
+PHASES
+  PHASE "Main" (1 weeks):
+    WEEK 1:
+      DAY Monday training 30m:
+        main:
+          habit water_intake:
+            name "Drink water"
+`;
+      const warnings = compileAndGetWarnings(source);
+      const habitWarnings = warnings.filter(w => w.message.includes("habit category"));
+      expect(habitWarnings).toHaveLength(0);
+    });
+
+    it("no warning for percentage_1rm weight (unit 'rm' should not fire weight unit warning)", () => {
+      const source = `\
+PLAN "Test"
+TYPE workout
+
+PHASES
+  PHASE "Main" (1 weeks):
+    WEEK 1:
+      DAY Monday training 60m:
+        main:
+          bench_press 4x8 weight 65% rm
+`;
+      const warnings = compileAndGetWarnings(source);
+      const weightUnitWarnings = warnings.filter(w => w.message.includes("weight unit"));
+      expect(weightUnitWarnings).toHaveLength(0);
+    });
+  });
+
   describe("warnings include suggestions", () => {
     it("suggests close match for typo in cardio modality", () => {
       const source = `\

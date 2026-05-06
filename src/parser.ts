@@ -3833,16 +3833,56 @@ function parseMeasurementList(state: ParseState): (string | MeasurementSpec)[] {
     skipNewlines(state);
     const tok = currentToken(state);
 
-    // Dash-prefixed legacy form
+    // Dash-prefixed form — handles both legacy plain strings and typed MeasurementSpec
     if (tok.type === "minus") {
       advance(state);
       const next = currentToken(state);
       if (next.type === "string") {
         items.push(next.value as string);
         advance(state);
-      } else if (next.type === "bare_word") {
-        items.push(next.value as string);
-        advance(state);
+      } else if (next.type === "bare_word" || next.type === "keyword") {
+        const metricStr = String(next.value);
+        if (MEASUREMENT_METRIC_ENUM_SET.has(metricStr)) {
+          // Typed spec — parse optional questionnaire and note qualifiers
+          advance(state);
+          const spec: MeasurementSpec = { metric: metricStr as MeasurementMetric };
+
+          // Optional questionnaire qualifier
+          const questTok = currentToken(state);
+          if (
+            (questTok.type === "keyword" || questTok.type === "bare_word") &&
+            questTok.value === "questionnaire"
+          ) {
+            advance(state);
+            const questValTok = currentToken(state);
+            if (questValTok.type === "bare_word" || questValTok.type === "keyword") {
+              const questStr = String(questValTok.value).toLowerCase();
+              if (QUESTIONNAIRE_SET.has(questStr)) {
+                spec.questionnaire = questStr as import("./types.js").Questionnaire;
+                advance(state);
+              }
+            }
+          }
+
+          // Optional note qualifier
+          const noteTok = currentToken(state);
+          if (
+            (noteTok.type === "keyword" || noteTok.type === "bare_word") &&
+            noteTok.value === "note"
+          ) {
+            advance(state);
+            if (currentToken(state).type === "string") {
+              spec.note = currentToken(state).value as string;
+              advance(state);
+            }
+          }
+
+          items.push(spec);
+        } else {
+          // Unknown bare word — emit as plain string
+          items.push(metricStr);
+          advance(state);
+        }
       } else {
         items.push("");
       }

@@ -443,6 +443,40 @@ describe("Feature 6 — Checkpoint typed MeasurementSpec (DSL)", () => {
     const third = measurements[2] as Record<string, unknown>;
     expect(third.metric).toBe("hrv_rmssd_ms");
   });
+
+  it("parses dash-prefixed typed MeasurementSpec with questionnaire and note", () => {
+    const src = withProgress(
+      `  CHECKPOINT "Month 1":\n    at 4 weeks\n    measure:\n      - body_weight_kg\n      - waist_cm\n      - questionnaire_score questionnaire psqi note "sleep quality"\n`,
+    );
+    const plan = compilePlanOk(src);
+    const progress = plan.progress as Record<string, unknown>;
+    const cp = (progress.checkpoints as Array<Record<string, unknown>>)[0]!;
+    const measurements = cp.measurements as Array<unknown>;
+    expect(measurements).toHaveLength(3);
+    const first = measurements[0] as Record<string, unknown>;
+    expect(first.metric).toBe("body_weight_kg");
+    const second = measurements[1] as Record<string, unknown>;
+    expect(second.metric).toBe("waist_cm");
+    const third = measurements[2] as Record<string, unknown>;
+    expect(third.metric).toBe("questionnaire_score");
+    expect(third.questionnaire).toBe("psqi");
+    expect(third.note).toBe("sleep quality");
+  });
+
+  it("parses dash-prefixed bare metric tokens as typed MeasurementSpec", () => {
+    const src = withProgress(
+      `  CHECKPOINT "Baseline":\n    at 0 weeks\n    measure:\n      - body_weight_kg\n      - hrv_rmssd_ms\n`,
+    );
+    const plan = compilePlanOk(src);
+    const progress = plan.progress as Record<string, unknown>;
+    const cp = (progress.checkpoints as Array<Record<string, unknown>>)[0]!;
+    const measurements = cp.measurements as Array<unknown>;
+    expect(measurements).toHaveLength(2);
+    const first = measurements[0] as Record<string, unknown>;
+    expect(first.metric).toBe("body_weight_kg");
+    const second = measurements[1] as Record<string, unknown>;
+    expect(second.metric).toBe("hrv_rmssd_ms");
+  });
 });
 
 // ===========================================================================

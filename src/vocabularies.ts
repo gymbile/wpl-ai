@@ -24,6 +24,7 @@ export const GOAL_CATEGORIES = [
   "mental_wellness",
   "nutrition",
   "habit",
+  "recovery",
   "custom",
 ] as const;
 

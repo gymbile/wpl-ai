@@ -52,12 +52,12 @@ export const GRAMMAR = {
   block_structure: ["circuit", "straight_sets", "superset", "emom", "amrap", "tabata"],
 
   // -- Activities (EBNF §8) --
-  cardio_modality: ["running", "cycling", "swimming", "rowing", "elliptical", "jump_rope"],
+  cardio_modality: ["running", "cycling", "swimming", "rowing", "elliptical", "jump_rope", "walking", "hiking"],
   cardio_type: ["continuous", "intervals", "fartlek"],
-  nutrition_category: ["meal", "snack", "supplement", "hydration"],
+  nutrition_category: ["meal", "snack", "supplement", "hydration", "pre_workout", "post_workout", "intra_workout", "daily_target"],
   meditation_category: ["breathing", "mindfulness", "visualization", "body_scan", "sleep"],
   recovery_category: ["stretching", "foam_rolling", "massage", "cold_therapy", "heat_therapy", "sleep", "cooldown"],
-  habit_category: ["hydration", "sleep", "steps", "screen_time", "custom"],
+  habit_category: ["hydration", "sleep", "steps", "screen_time", "custom", "water_intake"],
   recovery_sides: ["both", "left", "right"],
   weight_type: ["bodyweight", "absolute", "percentage_1rm", "percentage_bodyweight"],
   // -- Recovery modalities (schema v1.6.0+) --

@@ -244,9 +244,12 @@ function validateActivityValues(
       checkVocabulary(activity.category, "habit category", HABIT_CATEGORY_SET, HABIT_CATEGORIES, activity.range, sm, warnings);
       break;
     case "exercise":
-      if (activity.weight?.unit) {
+      if (activity.weight?.unit && activity.weight.type === "absolute") {
         // Weight sub-node has no range yet; fall back to the exercise's range.
         // TODO(Refactor C): once Weight carries a range, use it directly.
+        // Only enforce the kg/lbs unit check for absolute weights;
+        // percentage_1rm / percentage_bodyweight / bodyweight use "rm" or null
+        // as their unit marker and should never trigger this warning.
         checkVocabulary(activity.weight.unit, "weight unit", WEIGHT_UNIT_SET, WEIGHT_UNITS, activity.range, sm, warnings);
       }
       break;

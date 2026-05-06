@@ -7,6 +7,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.10.5] — 2026-05-04
+
+### Fixed — 6 validator vocabulary gaps + 1 parser bug
+
+- **#A — goal category `recovery`**: added `"recovery"` to `GOAL_CATEGORIES`; plans with `GOAL primary recovery:` no longer produce a spurious "Unknown goal category" warning.
+- **#B — cardio modalities `walking` and `hiking`**: added both to `GRAMMAR.cardio_modality` (and thus `CARDIO_MODALITIES`); `cardio walking continuous:` and `cardio hiking continuous:` are now recognised.
+- **#C — nutrition categories `post_workout`, `daily_target`, `pre_workout`, `intra_workout`**: added all four to `GRAMMAR.nutrition_category`; the existing `meal | snack | supplement | hydration` values are unchanged.
+- **#D — habit category `water_intake`**: added to `GRAMMAR.habit_category`; the existing `hydration | sleep | steps | screen_time | custom` values are unchanged.
+- **#E — percentage-weight unit `rm` false positive**: the weight-unit vocabulary check in the validator now runs only when `weight.type === "absolute"`; `percentage_1rm` / `percentage_bodyweight` / `bodyweight` weights no longer trigger an "Unknown weight unit" warning.
+- **#G — dash-prefixed typed `MeasurementSpec` parsing**: `parseMeasurementList` now correctly handles `- questionnaire_score questionnaire psqi note "text"` as a single `MeasurementSpec` AST node (with `metric`, `questionnaire`, and `note` fields) rather than emitting four separate bare-string items.
+
 ## [1.10.4] — 2026-05-05
 
 ### Fixed — 7 silent-failure parser/lexer bugs
