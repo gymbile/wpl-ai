@@ -494,16 +494,24 @@ function consumeNumberLike(state: LexerState): string {
   while (state.pos < state.source.length) {
     const c = peek(state)!;
 
-    // Colon - only valid in time/datetime patterns
+    // Colon - only valid in time/datetime patterns. A real time has minutes
+    // following (`10:30`), so consume `:` only when the next character is
+    // also a digit. Without this look-ahead, `WEEK 10:` greedily swallows
+    // `10:`, then fails because no minutes follow — making multi-digit week
+    // numbers (and any other `<2-digit>:` structural use) impossible to
+    // tokenise. Single-digit `WEEK 1:` happened to work because `1` does
+    // not match `^\d{2}$`. Regression test in __tests__/lexer.test.ts.
     if (c === ":") {
       const accStr = parts.join("");
-      // Valid time pattern: 2 digits before colon OR datetime pattern: date + T + 2 digits
-      if (/^\d{4}-\d{2}-\d{2}T\d{2}$/.test(accStr) || /^\d{2}$/.test(accStr)) {
+      const next = peek(state, 1);
+      const looksLikeTimePrefix =
+        /^\d{4}-\d{2}-\d{2}T\d{2}$/.test(accStr) || /^\d{2}$/.test(accStr);
+      if (looksLikeTimePrefix && next !== null && isDigit(next)) {
         parts.push(c);
         advance(state);
         continue;
       }
-      // Not a time pattern - stop (e.g., "WEEK 1:")
+      // Not a time pattern - stop (e.g., "WEEK 1:", "WEEK 10:")
       break;
     }
 

@@ -222,6 +222,37 @@ describe("Token types", () => {
       const tokens = tokensOf("9999");
       expect(tokens[0]).toMatchObject({ type: "number", value: 9999 });
     });
+
+    // Regression: v1.10.5 lexer greedily consumed `:` after exactly 2 digits
+    // (it speculatively read `10:` as the start of a time pattern), which
+    // made `WEEK 10:` — and every multi-digit week in any 12-week plan —
+    // fail to tokenise. v1.10.6 requires a digit to follow `:` for the
+    // colon to be consumed.
+    it("tokenizes 'WEEK 10:' as keyword + number + colon (not invalid_number)", () => {
+      const tokens = tokensOf("WEEK 10:");
+      expect(tokens[0]).toMatchObject({ type: "keyword", value: "WEEK" });
+      expect(tokens[1]).toMatchObject({ type: "number", value: 10 });
+      expect(tokens[2]).toMatchObject({ type: "colon" });
+    });
+
+    it("tokenizes 'WEEK 12:' (covers full 12-week programmes)", () => {
+      const tokens = tokensOf("WEEK 12:");
+      expect(tokens[0]).toMatchObject({ type: "keyword", value: "WEEK" });
+      expect(tokens[1]).toMatchObject({ type: "number", value: 12 });
+      expect(tokens[2]).toMatchObject({ type: "colon" });
+    });
+
+    it("tokenizes 'WEEK 1:' (regression: single-digit still works)", () => {
+      const tokens = tokensOf("WEEK 1:");
+      expect(tokens[0]).toMatchObject({ type: "keyword", value: "WEEK" });
+      expect(tokens[1]).toMatchObject({ type: "number", value: 1 });
+      expect(tokens[2]).toMatchObject({ type: "colon" });
+    });
+
+    it("still tokenizes '10:30' as a time (digit follows colon)", () => {
+      const tokens = tokensOf("10:30");
+      expect(tokens[0]).toMatchObject({ type: "time", value: "10:30" });
+    });
   });
 
   // -- Identifiers and bare words --
