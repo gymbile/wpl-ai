@@ -1,3 +1,5 @@
+import type { RepairHint } from "@gymbile/wpl-validator";
+
 // ---------------------------------------------------------------------------
 // Location
 // ---------------------------------------------------------------------------
@@ -44,7 +46,8 @@ export type ParseErrorType =
   | "invalid_keyword"
   | "duplicate_section"
   | "invalid_structure"
-  | "unknown_exercise_ref";
+  | "unknown_exercise_ref"
+  | "week_has_no_valid_days";
 
 export interface ParseError {
   kind: "parse";
@@ -54,6 +57,13 @@ export interface ParseError {
   expected: string[] | null;
   got: string | null;
   suggestions: string[] | null;
+  /**
+   * Optional structured guidance for agentic completion loops. Mirrors
+   * the `repair_hint` field on `@gymbile/wpl-validator`'s ValidationError.
+   * Errors emitted before AST is fully built do not always know enough
+   * to populate this field; it is therefore optional.
+   */
+  repair_hint?: RepairHint;
 }
 
 // ---------------------------------------------------------------------------
@@ -251,6 +261,52 @@ export function invalidValue(
       got: value,
     },
   );
+}
+
+const DAY_BLOCK_DSL_EXAMPLE = `      DAY Monday training 45m "Session name":
+        warmup:
+          cycling 5m zone2
+        main straight_sets:
+          <exercise_name> 3x8..12 rpe 7 rest 90 seconds
+        cooldown:
+          <stretch_name> 30s`;
+
+/**
+ * Emitted when a `WEEK N:` block contains content that is not a valid
+ * `DAY` block (e.g. the LLM wrote `Monday: walk/run` as an inline summary
+ * instead of `DAY Monday training 45m "..."`). Without this error the
+ * parser silently discards the malformed week body, the compiler produces
+ * a week with empty days, and the validator only catches the gap much
+ * later via `PHASE_DURATION_MISMATCH` — by which point the orchestrator
+ * has lost the line-level pointer.
+ *
+ * Surfaced as a parse error with `repair_hint` so an agentic loop can
+ * regenerate the exact week.
+ */
+export function weekHasNoValidDays(
+  weekNumber: number | null,
+  gotToken: string,
+  location: Location,
+): ParseError {
+  const weekLabel = weekNumber !== null ? `WEEK ${weekNumber}` : "WEEK";
+  const err = parseError(
+    "week_has_no_valid_days",
+    `${weekLabel} block has no valid DAY children (found '${gotToken}'). Use 'DAY <name> training Nm "...":' syntax — inline 'Monday: ...' summaries are not valid WPL-AI.`,
+    {
+      location,
+      expected: ["DAY"],
+      got: gotToken,
+    },
+  );
+  const target_path = weekNumber !== null ? `/plan/weeks/${weekNumber}/days` : "/plan/weeks/?/days";
+  err.repair_hint = {
+    action: "add_days",
+    target_path,
+    ...(weekNumber !== null ? { parent_name: `Week ${weekNumber}` } : {}),
+    expected_shape: 'DAY <name> training <duration> "<label>": (with warmup/main/cooldown body)',
+    context_dsl_example: DAY_BLOCK_DSL_EXAMPLE,
+  };
+  return err;
 }
 
 export function invalidKeyword(

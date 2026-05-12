@@ -2027,3 +2027,69 @@ PHASES
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// 40. WEEK_HAS_NO_VALID_DAYS — silent-drop guard (wpl-ai 1.11.0)
+// ---------------------------------------------------------------------------
+
+describe("WEEK with inline summary content (instead of DAY blocks)", () => {
+  // Common LLM mistake: the model writes a "summary" version of the plan
+  // where each WEEK has one-line entries like `Monday: ...` instead of
+  // full `DAY Monday training 45m "...":` blocks. Pre-1.11.0 this was
+  // silently discarded; the parser now flags it with a repair_hint so an
+  // agentic loop can regenerate the offending week.
+  it("emits parse error 'week_has_no_valid_days' with a repair_hint", () => {
+    const source = `\
+PLAN "Trunc"
+TYPE workout
+
+PHASES
+  PHASE "Foundation" (4 weeks):
+    WEEK 1:
+      DAY Monday training 45m "Real day":
+        main:
+          push_up 3x10
+    WEEK 2:
+      Monday: walk/run intervals (slightly longer)
+      Wednesday: walk/run intervals (slightly longer)
+    WEEK 3:
+      DAY Tuesday training 45m "Recovers":
+        main:
+          push_up 3x10`;
+
+    const errs = parseErrors(source);
+    const dayErr = errs.find((e) => e.kind === "parse" && e.type === "week_has_no_valid_days");
+    expect(dayErr).toBeDefined();
+    if (dayErr && dayErr.kind === "parse") {
+      expect(dayErr.message).toContain("WEEK 2");
+      expect(dayErr.message).toContain("DAY");
+      expect(dayErr.repair_hint).toBeDefined();
+      expect(dayErr.repair_hint!.action).toBe("add_days");
+      expect(dayErr.repair_hint!.parent_name).toBe("Week 2");
+      expect(dayErr.repair_hint!.context_dsl_example).toContain("DAY Monday");
+    }
+  });
+
+  it("does NOT flag a legitimately empty WEEK block (placeholder week)", () => {
+    // Periodisation scaffolds commonly declare empty weeks. The next
+    // top-level keyword (WEEK / PHASE) signals end-of-body without
+    // any erroneous inline content; the parser must accept this.
+    const source = `\
+PLAN "Empty weeks"
+TYPE workout
+
+PHASES
+  PHASE "Foundation" (3 weeks):
+    WEEK 1:
+      DAY Monday training 45m "Real":
+        main:
+          push_up 3x10
+    WEEK 2:
+    WEEK 3:`;
+
+    const doc = parseOk(source);
+    expect(doc.phases[0].weeks).toHaveLength(3);
+    expect(doc.phases[0].weeks[1].days).toEqual([]);
+    expect(doc.phases[0].weeks[2].days).toEqual([]);
+  });
+});

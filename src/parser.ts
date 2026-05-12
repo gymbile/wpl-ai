@@ -79,6 +79,7 @@ import {
   invalidValue,
   unknownExerciseRef,
   invalidStructure,
+  weekHasNoValidDays,
 } from "./errors.js";
 
 import { validateExercise } from "./exercise-matcher.js";
@@ -1908,14 +1909,22 @@ function parseWeek(state: ParseState): Week {
   expectColon(state);
   skipNewlines(state);
 
+  // Track whether we entered an indented body. Used to distinguish
+  // legitimate empty weeks (no indent emitted; next token is a peer
+  // keyword like WEEK or PHASE) from the silent-drop case (indent
+  // emitted; body contains non-DAY content like inline `Monday: ...`
+  // summaries).
+  let enteredIndent = false;
   if (currentToken(state).type === "indent") {
     advance(state);
+    enteredIndent = true;
   }
 
-  const days = parseDays(state);
+  const weekNumber = Math.trunc(number);
+  const days = parseDays(state, enteredIndent ? weekNumber : null);
 
   return {
-    number: Math.trunc(number),
+    number: weekNumber,
     name,
     is_deload: isDeload ? true : null,
     days,
@@ -1923,7 +1932,7 @@ function parseWeek(state: ParseState): Week {
   };
 }
 
-function parseDays(state: ParseState): Day[] {
+function parseDays(state: ParseState, weekNumber: number | null = null): Day[] {
   const days: Day[] = [];
 
   for (;;) {
@@ -1932,12 +1941,49 @@ function parseDays(state: ParseState): Day[] {
 
     if (tok.type === "keyword" && tok.value === "DAY") {
       days.push(parseDay(state));
-    } else if (tok.type === "dedent") {
+      continue;
+    }
+    if (tok.type === "dedent") {
       advance(state);
       break;
-    } else {
+    }
+    if (tok.type === "eof") {
       break;
     }
+    // Silent-drop guard. `weekNumber` is only non-null when parseWeek
+    // entered an indented body — i.e., the week declared content. Any
+    // non-{DAY,dedent,eof} token here means the body has content that
+    // is not a valid DAY block (common LLM mistake: writing `Monday:
+    // walk/run` as an inline summary instead of the full `DAY Monday
+    // training 45m "...":` block). Without this guard the parser
+    // silently discarded the body and only the downstream
+    // PHASE_DURATION_MISMATCH validator caught the gap — without a
+    // precise pointer. Emit a parse error here with a repair_hint so
+    // agentic loops can regenerate this specific week.
+    //
+    // When `weekNumber` is null, parseDays was called outside an
+    // indented week body (legitimate empty-week scaffold). Silent
+    // break in that case.
+    if (weekNumber === null) {
+      break;
+    }
+    if (days.length === 0) {
+      addError(
+        state,
+        weekHasNoValidDays(weekNumber, String(tok.value ?? tok.type), tok.location),
+      );
+    }
+    // Recover: skip until dedent/eof/top-level keyword so subsequent
+    // weeks still parse.
+    while (
+      currentToken(state).type !== "dedent" &&
+      currentToken(state).type !== "eof" &&
+      currentToken(state).type !== "keyword"
+    ) {
+      advance(state);
+    }
+    if (currentToken(state).type === "dedent") advance(state);
+    break;
   }
 
   return days;
