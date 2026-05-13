@@ -7,6 +7,34 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.13.0] — 2026-05-13
+
+### Added — vocabulary expansion (corpus-driven)
+
+Adds 10 exercise references to `ALL_EXERCISES` based on the
+unknown_exercise_ref tail in the wpl-eval v0.2.0 corpus audit. Every
+entry below was observed as a genuine (non-typo) emission by at least
+one model during the eval sweep:
+
+- **UPPER_BODY**: `inverted_row`, `hangboard` (climbing-specific grip work)
+- **REHAB_MOBILITY** (new category):
+  - Rotator-cuff / shoulder rehab: `scapular_retraction`,
+    `external_rotation`, `internal_rotation`, `prone_T`, `prone_Y`,
+    `prone_W`
+  - Pelvic floor / postpartum / pregnancy: `pelvic_tilt`,
+    `diaphragmatic_breathing`
+
+Effect on the wpl-eval v0.2.0 corpus: the served-rate denominator
+is unchanged at 77/80 (these were already accepted via the tier-2
+fallback in 1.12.0). What changes is the *quality* of the served
+plans — downstream consumers now look these exercises up against
+the canonical `ALL_EXERCISES` set rather than receiving them as
+opaque strings flagged by semantic-validator warnings.
+
+### Internal
+- All 1227 tests pass (1 added for the v1.13 vocabulary additions).
+- `exercises.ts` adds the `REHAB_MOBILITY` exported constant.
+
 ## [1.12.0] — 2026-05-13
 
 ### Fixed — silent week-truncation + LLM-emitted variant tolerance

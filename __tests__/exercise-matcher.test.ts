@@ -7,6 +7,7 @@ import {
   CARDIO_WARMUP,
   STRETCHING,
   FULL_BODY,
+  REHAB_MOBILITY,
   isKnownExercise,
 } from "../src/exercises.js";
 import { suggest, bestMatch, validateExercise } from "../src/exercise-matcher.js";
@@ -29,6 +30,32 @@ describe("Exercise library", () => {
       "kettlebell_swing",
     ];
     for (const name of expected) {
+      expect(ALL_EXERCISES).toContain(name);
+    }
+  });
+
+  it("ALL_EXERCISES contains the v1.13 vocabulary additions (rehab + variants)", () => {
+    // Each entry below appeared as an unknown_exercise_ref in the
+    // wpl-eval v0.2.0 corpus. Adding them removes the head-of-cascade
+    // error for those trials and lets the orchestrator focus on real
+    // structural issues rather than vocabulary gaps.
+    const v113Additions = [
+      // Upper-body / pull
+      "inverted_row",
+      // Climbing / grip
+      "hangboard",
+      // Rotator-cuff / shoulder rehab
+      "scapular_retraction",
+      "external_rotation",
+      "internal_rotation",
+      "prone_T",
+      "prone_Y",
+      "prone_W",
+      // Pelvic floor / breathing
+      "pelvic_tilt",
+      "diaphragmatic_breathing",
+    ];
+    for (const name of v113Additions) {
       expect(ALL_EXERCISES).toContain(name);
     }
   });
@@ -70,6 +97,7 @@ describe("Exercise library", () => {
         ...CARDIO_WARMUP,
         ...STRETCHING,
         ...FULL_BODY,
+        ...REHAB_MOBILITY,
       ];
       expect(combined).toEqual(ALL_EXERCISES);
     });

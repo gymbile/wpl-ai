@@ -3,12 +3,14 @@ export const UPPER_BODY = [
   "bench_press", "incline_press", "decline_press", "dumbbell_press",
   "shoulder_press", "overhead_press", "military_press", "arnold_press",
   "dumbbell_row", "barbell_row", "bent_over_row", "cable_row", "seated_row",
+  "inverted_row",
   "lat_pulldown", "cable_pulldown",
   "bicep_curl", "hammer_curl", "concentration_curl", "preacher_curl",
   "tricep_dip", "tricep_extension", "tricep_pushdown", "skull_crusher",
   "face_pull", "rear_delt_fly", "lateral_raise", "front_raise",
   "dumbbell_fly", "cable_fly", "chest_fly", "pec_deck",
   "shrug", "upright_row",
+  "hangboard",
 ] as const;
 
 export const LOWER_BODY = [
@@ -71,8 +73,22 @@ export const FULL_BODY = [
   "battle_ropes", "rowing",
 ] as const;
 
+// Rehab / mobility / breathing exercises. These appear frequently in
+// programmes for post-injury, postpartum, and rotator-cuff-impingement
+// clients. Sourced from the wpl-eval v0.2.0 unknown_exercise_ref tail
+// — every entry here was observed as a real (non-typo) emission by at
+// least one model during the eval sweep.
+export const REHAB_MOBILITY = [
+  // Rotator-cuff / shoulder rehab
+  "scapular_retraction", "external_rotation", "internal_rotation",
+  "prone_T", "prone_Y", "prone_W",
+  // Pelvic floor / postpartum / pregnancy
+  "pelvic_tilt", "diaphragmatic_breathing",
+] as const;
+
 export const ALL_EXERCISES: readonly string[] = [
   ...UPPER_BODY, ...LOWER_BODY, ...CORE, ...CARDIO_WARMUP, ...STRETCHING, ...FULL_BODY,
+  ...REHAB_MOBILITY,
 ];
 
 // Build a Set for O(1) lookups
