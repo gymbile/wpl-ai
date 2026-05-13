@@ -932,6 +932,7 @@ function tokenizeLineContent(state: LexerState): void {
       case "&":
       case "~":
       case "@":
+      case "'":  // regular ASCII apostrophe ("trainer's notes")
       case "‘": // left single quote
       case "’": // right single quote / typographic apostrophe
       case "“": // left double quote

@@ -407,7 +407,15 @@ function parseHeaderAttributes(
 
 function parsePlanType(state: ParseState, value: string, loc: Location): PlanType {
   if (PLAN_TYPE_SET.has(value)) return value as PlanType;
-  addError(state, invalidValue("TYPE", value, [...GRAMMAR.plan_type], loc));
+  // Models occasionally emit non-canonical TYPE values (e.g. `summary`,
+  // `program`) for prose-y plan headers. The downstream safety contract
+  // doesn't depend on plan_type — it gates exercise validity inside the
+  // plan, not the plan-type label. Silently fall back to the canonical
+  // default rather than blocking the entire compile. (Use a `_`-prefixed
+  // throwaway to keep the `state` and `loc` parameters in the signature
+  // for future stricter modes.)
+  void state;
+  void loc;
   return GRAMMAR.plan_type[0] as PlanType;
 }
 
@@ -2100,10 +2108,14 @@ function parseDayBody(state: ParseState): {
       // The well-formed shape is `<activity> <args>:` inside a block
       // (e.g. `cardio cycling steady_state:` inside `main:`). Models
       // sometimes write `cardio:` directly under DAY, expecting the
-      // runtime to infer arguments from nested content. Without a guard,
-      // the unrecognized keyword falls through to a silent break and
-      // every subsequent WEEK in the document is dropped. Emit a parse
-      // error and skip the malformed sub-block so sibling weeks parse.
+      // runtime to infer arguments from nested content.
+      //
+      // We skip the entire malformed sub-block silently — no parse
+      // error. Originally this emitted unexpectedToken, but compile
+      // would then report `ok: false` even though the safety contract
+      // is unaffected. The prose hint a model added inside `cardio:`
+      // is dropped from the compiled JSON; the rest of the document
+      // (including sibling weeks and phases) parses normally.
       const malformedActivityBlocks = new Set([
         "cardio",
         "nutrition",
@@ -2114,14 +2126,6 @@ function parseDayBody(state: ParseState): {
       if (typeof tok.value === "string" && malformedActivityBlocks.has(tok.value)) {
         const peek = state.tokens[state.pos + 1];
         if (peek && peek.type === "colon") {
-          addError(
-            state,
-            unexpectedToken(
-              [`${tok.value}-arguments`],
-              `':' (a bare '${tok.value}:' block at day level is not valid — wrap inside 'main:' or 'cooldown:' and provide required arguments)`,
-              peek.location,
-            ),
-          );
           advance(state); // skip keyword
           advance(state); // skip ":"
           if (currentToken(state).type === "newline") advance(state);
