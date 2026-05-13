@@ -112,6 +112,7 @@ import {
 } from "./grammar.js";
 
 import {
+  CARDIO_MODALITY_SET,
   WEIGHT_METRIC_SYNONYMS,
   MEASUREMENT_METRIC_ENUM_SET,
   QUESTIONNAIRE_SET,
@@ -2464,6 +2465,15 @@ function parseExerciseOrSimpleActivity(state: ParseState): Activity {
 }
 
 function validateExerciseRef(state: ParseState, ref: string): void {
+  // Cardio modalities (running, walking, cycling, rowing, elliptical,
+  // swimming, jump_rope, hiking) commonly appear as the "exercise ref"
+  // in sets×reps prescriptions emitted by LLMs ("running 1x60 rpe 5 rest
+  // 90 seconds" meaning "1 set × 60 sec running at RPE 5"). Treating
+  // them as unknown exercises would fail the compile; instead accept
+  // them silently — the downstream simple/cardio-activity machinery
+  // tolerates the name and the schema validator can flag any genuinely
+  // unsupported usage as a warning rather than a fatal parse error.
+  if (CARDIO_MODALITY_SET.has(ref)) return;
   const result = validateExercise(ref);
   if (!result.ok) {
     addError(
