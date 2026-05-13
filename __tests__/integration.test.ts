@@ -661,7 +661,10 @@ describe("Parse error propagation", () => {
     expect(result.errors.some((e) => e.kind === "parse")).toBe(true);
   });
 
-  it("unknown exercise references produce parse error with suggestions", () => {
+  it("close-typo exercise refs are auto-resolved to the canonical form", () => {
+    // `pushup` clears bestMatch's threshold and is substituted to
+    // `push_up` silently. The compile succeeds; downstream consumers
+    // see the canonical exercise_ref in the JSON.
     const source = `\
 PLAN "Test"
 TYPE workout
@@ -673,19 +676,15 @@ PHASES
         main:
           pushup 3x10`;
     const result = compileWplAi(source);
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    const unknownExError = result.errors.find(
-      (e) =>
-        e.kind === "parse" &&
-        (e as ParseError).type === "unknown_exercise_ref",
-    );
-    expect(unknownExError).toBeDefined();
-    expect(unknownExError!.message).toContain("pushup");
-    expect(unknownExError!.message).toContain("Did you mean");
-    expect(unknownExError!.message).toContain("push_up");
-    const pe = unknownExError as ParseError;
-    expect(pe.suggestions).toContain("push_up");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const activity = (result.json as Record<string, unknown>).plan as Record<string, unknown>;
+    const phase = (activity.phases as Array<Record<string, unknown>>)[0]!;
+    const week = (phase.weeks as Array<Record<string, unknown>>)[0]!;
+    const day = (week.days as Array<Record<string, unknown>>)[0]!;
+    const block = (day.blocks as Array<Record<string, unknown>>)[0]!;
+    const ex = (block.activities as Array<Record<string, unknown>>)[0]!;
+    expect(ex.exercise_ref).toBe("push_up");
   });
 
   it("parse errors appear with kind: parse", () => {

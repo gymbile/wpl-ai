@@ -845,7 +845,9 @@ PHASES
     expect(ex.weight).toMatchObject({ type: "absolute", value: 135, unit: "lbs" });
   });
 
-  it("unknown exercise generates error with suggestions", () => {
+  it("close-typo exercise refs are auto-resolved to the canonical form", () => {
+    // `bnech_press` clears bestMatch's 0.85 Jaro-Winkler threshold and
+    // is silently substituted to `bench_press`. No error is emitted.
     const result = parseSource(`\
 PLAN "E"
 TYPE workout
@@ -856,18 +858,24 @@ PHASES
       DAY Monday training 60m "Test":
         main straight_sets:
           bnech_press 3x10`);
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      const exerciseError = result.errors.find(
-        (e) => e.kind === "parse" && e.type === "unknown_exercise_ref",
-      );
-      expect(exerciseError).toBeDefined();
-      if (exerciseError && exerciseError.kind === "parse") {
-        expect(exerciseError.got).toBe("bnech_press");
-        expect(exerciseError.suggestions).toBeDefined();
-        expect(exerciseError.suggestions!.length).toBeGreaterThan(0);
-      }
-    }
+    expect(result.ok).toBe(true);
+  });
+
+  it("unknown exercise with no close match is accepted as-is (no parse error)", () => {
+    // Tier-2 fallback: when bestMatch produces no high-confidence
+    // substitution, the unknown ref is kept verbatim in the JSON so the
+    // compile succeeds. The semantic validator may still emit a warning.
+    const result = parseSource(`\
+PLAN "E"
+TYPE workout
+
+PHASES
+  PHASE "Test" (1 weeks):
+    WEEK 1:
+      DAY Monday training 60m "Test":
+        main straight_sets:
+          flibbertigibbet_curl 3x10`);
+    expect(result.ok).toBe(true);
   });
 });
 

@@ -82,7 +82,7 @@ import {
   weekHasNoValidDays,
 } from "./errors.js";
 
-import { validateExercise } from "./exercise-matcher.js";
+import { validateExercise, bestMatch } from "./exercise-matcher.js";
 import type { Token, TokenType } from "./lexer.js";
 import {
   GRAMMAR,
@@ -2389,15 +2389,17 @@ function parseExerciseOrSimpleActivity(state: ParseState): Activity {
 
       const modifiers = parseExerciseModifiers(state);
 
-      // Validate the exercise ref
-      validateExerciseRef(state, name);
+      // Validate and (when possible) auto-resolve the exercise ref.
+      // Typo'd or stylistic-variant names with a high-confidence match
+      // in the vocabulary get substituted to the canonical form.
+      const resolvedName = resolveExerciseRef(state, name);
 
       const primaryMuscles = modifiers.primary_muscles as string[] | undefined;
       const secondaryMuscles = modifiers.secondary_muscles as string[] | undefined;
 
       return {
         kind: "exercise",
-        exercise_ref: name,
+        exercise_ref: resolvedName,
         name: (modifiers.name as string) ?? null,
         sets: Math.trunc(setsOrDuration),
         reps,
@@ -2481,23 +2483,46 @@ function parseExerciseOrSimpleActivity(state: ParseState): Activity {
   };
 }
 
-function validateExerciseRef(state: ParseState, ref: string): void {
-  // Cardio modalities (running, walking, cycling, rowing, elliptical,
-  // swimming, jump_rope, hiking) commonly appear as the "exercise ref"
-  // in sets×reps prescriptions emitted by LLMs ("running 1x60 rpe 5 rest
-  // 90 seconds" meaning "1 set × 60 sec running at RPE 5"). Treating
-  // them as unknown exercises would fail the compile; instead accept
-  // them silently — the downstream simple/cardio-activity machinery
-  // tolerates the name and the schema validator can flag any genuinely
-  // unsupported usage as a warning rather than a fatal parse error.
-  if (CARDIO_MODALITY_SET.has(ref)) return;
+function resolveExerciseRef(state: ParseState, ref: string): string {
+  // Cardio modalities — accepted as-is, see note in parseExerciseOrSimpleActivity.
+  if (CARDIO_MODALITY_SET.has(ref)) return ref;
+
   const result = validateExercise(ref);
-  if (!result.ok) {
-    addError(
-      state,
-      unknownExerciseRef(ref, currentLocation(state), result.suggestions),
-    );
+  if (result.ok) return ref;
+
+  // Tier 1: high-confidence auto-correction. When bestMatch (Jaro-Winkler
+  // ≥ 0.85) returns a hit, the unknown ref is almost certainly a typo of
+  // an existing exercise: `pushup` → `push_up`, `bnech_press` →
+  // `bench_press`, `dumbbell_chest_press` → `dumbbell_press`. Substitute
+  // silently so the compile keeps the canonical form in the JSON.
+  const best = bestMatch(ref);
+  if (best !== null) {
+    return best;
   }
+
+  // Tier 2: low-confidence fallback. The ref doesn't match anything
+  // closely (e.g. `scapular_retraction`, `hangboard`, `diaphragmatic_
+  // breathing` — real exercises just absent from ALL_EXERCISES). Lowering
+  // the substitution threshold would produce semantically wrong matches
+  // (`hangboard` → `hanging_leg_raise`). Instead: accept the ref as-is.
+  // The WPL JSON schema permits exercise_ref as a free string, so the
+  // compile succeeds. The semantic validator can emit a warning during
+  // validateActivityVocabularies. Suppress the parse error rather than
+  // failing the entire document for an unrecognised name.
+  //
+  // `result.suggestions` is still threaded through state.warnings via
+  // the semantic-validator pass downstream — orchestrators that re-prompt
+  // on warnings can still discover the candidate substitutions.
+  void state;
+  void result;
+  return ref;
+}
+
+// Legacy wrapper retained for any call sites that still want the
+// validate-only semantics. New code should call resolveExerciseRef and
+// use its return value as the exercise_ref.
+function validateExerciseRef(state: ParseState, ref: string): void {
+  resolveExerciseRef(state, ref);
 }
 
 // ---------------------------------------------------------------------------
