@@ -2376,19 +2376,28 @@ function parseExerciseOrSimpleActivity(state: ParseState): Activity {
         next.value === "days");
     if (isShortUnit || isLongUnit) {
       advance(state);
+      const duration = {
+        value: setsOrDuration,
+        unit: parseTimeUnit(next.value as string),
+      };
+      // Tolerate trailing intensity/effort modifiers on a simple
+      // duration-based activity (e.g. `cycling 20m rpe 6` or
+      // `rowing 5m heart_rate_zone 2`). The simple-activity schema does
+      // not carry these fields, so the values are intentionally dropped —
+      // the goal is to prevent the modifier keywords from leaking into
+      // block-body parsing and silently truncating subsequent WEEK blocks.
+      consumeSimpleActivityModifiers(state);
       return {
         kind: "simple",
         name,
-        duration: {
-          value: setsOrDuration,
-          unit: parseTimeUnit(next.value as string),
-        },
+        duration,
         params: null,
         range: makeRange(state, fromOffset),
       };
     }
 
     // Simple activity with number only (assume minutes)
+    consumeSimpleActivityModifiers(state);
     return {
       kind: "simple",
       name,
@@ -2507,6 +2516,53 @@ function parseRepsSpec(state: ParseState): { reps: RepsSpec; amrap: boolean } {
 // ---------------------------------------------------------------------------
 // Exercise Modifiers: rpe, rir, tempo, rest, weight, name
 // ---------------------------------------------------------------------------
+
+// Consume trailing exercise-modifier keywords on a simple activity and
+// discard them. SimpleActivity has no fields for rpe/rir/rest/etc, so the
+// values are dropped — but consuming the tokens prevents them from leaking
+// into block-body parsing where they would silently truncate downstream
+// WEEK blocks. Tolerant; bails on the first token that isn't a known
+// modifier keyword.
+function consumeSimpleActivityModifiers(state: ParseState): void {
+  const modifierKeywords = new Set([
+    "rpe",
+    "rir",
+    "rest",
+    "tempo",
+    "weight",
+    "name",
+    "to_failure",
+    "bodyweight",
+    "heart_rate_zone",
+    "bpm",
+    "pace",
+  ]);
+  for (;;) {
+    const tok = currentToken(state);
+    if (tok.type !== "keyword") return;
+    if (typeof tok.value !== "string" || !modifierKeywords.has(tok.value)) return;
+    advance(state);
+    // Each known modifier takes at least one argument; consume tokens
+    // until we hit a newline, dedent, eof, or another modifier keyword.
+    while (true) {
+      const t = currentToken(state);
+      if (
+        t.type === "newline" ||
+        t.type === "dedent" ||
+        t.type === "eof" ||
+        t.type === "indent"
+      )
+        break;
+      if (
+        t.type === "keyword" &&
+        typeof t.value === "string" &&
+        modifierKeywords.has(t.value)
+      )
+        break;
+      advance(state);
+    }
+  }
+}
 
 function parseExerciseModifiers(
   state: ParseState,
