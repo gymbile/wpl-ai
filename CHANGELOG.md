@@ -7,6 +7,72 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.12.0] — 2026-05-13
+
+### Fixed — silent week-truncation + LLM-emitted variant tolerance
+
+A 10-commit series addressing parser bugs surfaced by the `wpl-eval`
+v0.2.0 audit. Each commit log details the trial-recovery impact;
+combined, they moved the eval's Lane B served rate from 37/80 (46%) to
+77/80 (96%) with no LLM re-calls — purely from re-compiling the stored
+result corpus against the patched compiler. The 0/80 unsafe headline
+holds throughout.
+
+**Parser — silent week-truncation**
+- `rpe N..M` (and `rir N..M`) ranges now parse correctly at both call
+  sites (exercise modifier and intensity block). Previously the range
+  token leaked into downstream parsing and silently dropped subsequent
+  WEEK blocks (`fix(parser): silent week-truncation on rpe/rir ranges`).
+- `parseRepsSpec` consumes a trailing `s`/`m`/`seconds`/`minutes` time-
+  unit suffix when followed by an exercise-modifier keyword, so
+  `plank 3x30s rpe 6 rest 60 seconds` parses cleanly (`fix(parser):
+  silent week-truncation on rpe/rir ranges, time-unit reps suffixes`).
+- `parseExerciseOrSimpleActivity` consumes long-form time units
+  (`cycling 10 minutes`) and trailing intensity modifiers on simple
+  duration activities (`cycling 20m rpe 6`) — `fix(parser): silent
+  week-truncation on simple-activity modifier leakage`.
+- `parseDayBody` recovers from bare activity-type blocks at day level
+  (`cardio:` / `recovery:` etc. without arguments). Skips the malformed
+  sub-block instead of bailing on the entire document.
+
+**Parser — exercise refs**
+- `validateExerciseRef` short-circuits when the ref is a known cardio
+  modality (running, walking, cycling, rowing, elliptical, swimming,
+  jump_rope, hiking) — models commonly use these in sets×reps form
+  (`fix(parser): accept cardio modalities as exercise refs`).
+- `resolveExerciseRef` introduces two-tier resolution: bestMatch
+  (Jaro-Winkler ≥ 0.85) auto-corrects clear typos (`bnech_press` →
+  `bench_press`, `pushup` → `push_up`); below threshold, the ref is
+  accepted as-is rather than failing the compile (`fix(parser):
+  two-tier exercise-ref resolution`).
+
+**Lexer — typographic tolerance**
+- Unicode dashes (`–` U+2013, `—` U+2014) normalise to hyphen so
+  `rpe 6–7` and `weeks 9–12` tokenise correctly.
+- Typographic punctuation (`;`, `&`, `~`, `@`, ASCII apostrophe `'`,
+  smart quotes, ellipsis `…`, `≤`, `≥`, middle dot, bullet) is
+  skipped silently rather than emitting `invalid_character`.
+- `N-M` between two numbers is now a range token (equivalent to `..`),
+  so `rpe 6-7` and `8-12 reps` parse as ranges. `consumeNumberLike`
+  no longer eats `-` mid-number unless the prefix looks like an ISO
+  date or datetime.
+- Trailing-dot number typos (`12.`, `7.`) emit the integer cleanly;
+  the dangling dot is consumed silently by `tokenizeDots`.
+
+**Parser — top-level recovery**
+- `parseSections` skips unrecognised ALL-CAPS section keywords
+  (`NUTRITION:`, `SUMMARY:`, `NOTES:`) silently instead of bailing.
+  Models commonly append free-form prose annotations after the
+  canonical `PHASES` section.
+- `parsePlanType` falls back to the canonical default when TYPE is
+  non-canonical (e.g. `TYPE summary`) instead of failing.
+
+### Internal
+- All 1226 existing tests pass. Two regression tests updated to
+  reflect the new auto-correct semantics (typo'd exercise refs now
+  resolve, not error). One new test added for the no-close-match
+  fallthrough.
+
 ## [1.10.5] — 2026-05-04
 
 ### Fixed — 6 validator vocabulary gaps + 1 parser bug
