@@ -2080,6 +2080,50 @@ function parseDayBody(state: ParseState): {
         blocks.push(parseBlock(state));
         continue;
       }
+
+      // Tolerate activity-type keywords (cardio, nutrition, meditation,
+      // recovery, habit) when written as bare blocks at day-body level.
+      // The well-formed shape is `<activity> <args>:` inside a block
+      // (e.g. `cardio cycling steady_state:` inside `main:`). Models
+      // sometimes write `cardio:` directly under DAY, expecting the
+      // runtime to infer arguments from nested content. Without a guard,
+      // the unrecognized keyword falls through to a silent break and
+      // every subsequent WEEK in the document is dropped. Emit a parse
+      // error and skip the malformed sub-block so sibling weeks parse.
+      const malformedActivityBlocks = new Set([
+        "cardio",
+        "nutrition",
+        "meditation",
+        "recovery",
+        "habit",
+      ]);
+      if (typeof tok.value === "string" && malformedActivityBlocks.has(tok.value)) {
+        const peek = state.tokens[state.pos + 1];
+        if (peek && peek.type === "colon") {
+          addError(
+            state,
+            unexpectedToken(
+              [`${tok.value}-arguments`],
+              `':' (a bare '${tok.value}:' block at day level is not valid — wrap inside 'main:' or 'cooldown:' and provide required arguments)`,
+              peek.location,
+            ),
+          );
+          advance(state); // skip keyword
+          advance(state); // skip ":"
+          if (currentToken(state).type === "newline") advance(state);
+          if (currentToken(state).type === "indent") {
+            advance(state);
+            let depth = 1;
+            while (depth > 0 && currentToken(state).type !== "eof") {
+              const t = currentToken(state);
+              if (t.type === "indent") depth++;
+              else if (t.type === "dedent") depth--;
+              advance(state);
+            }
+          }
+          continue;
+        }
+      }
     }
 
     if (tok.type === "dedent") {
@@ -2444,6 +2488,22 @@ function validateExerciseRef(state: ParseState, ref: string): void {
  *   - A range with target:        6..8 target 7
  *   - AMRAP (any case):           amrap / AMRAP → reps=0, amrap=true
  */
+// Modifier keywords that can legitimately follow a reps spec on the
+// same line. When a unit suffix sits between reps and one of these
+// keywords (e.g. `3x30s rpe 6`), we consume the suffix; otherwise we
+// leave it so existing conformance behaviour around terminal `s`
+// (parsed as a separate simple activity) is preserved.
+const REPS_MODIFIER_FOLLOW = new Set([
+  "rpe",
+  "rir",
+  "rest",
+  "tempo",
+  "weight",
+  "name",
+  "to_failure",
+  "bodyweight",
+]);
+
 function parseRepsSpec(state: ParseState): { reps: RepsSpec; amrap: boolean } {
   // Accept AMRAP / amrap as a bare reps token (schema v1.6.0+).
   const tok = currentToken(state);
@@ -2474,6 +2534,29 @@ function parseRepsSpec(state: ParseState): { reps: RepsSpec; amrap: boolean } {
       };
     }
 
+    // Same time-unit-suffix handling as the single-number branch below.
+    // Range forms like `plank 3x20..30s rpe 6` need the trailing `s` /
+    // `seconds` consumed when a modifier keyword follows, otherwise the
+    // unit token leaks and truncates downstream WEEK blocks.
+    {
+      const u = currentToken(state);
+      const isShort = u.type === "bare_word" && (u.value === "s" || u.value === "m");
+      const isLong =
+        u.type === "keyword" &&
+        typeof u.value === "string" &&
+        (u.value === "seconds" || u.value === "minutes" || u.value === "hours");
+      if (isShort || isLong) {
+        const after = state.tokens[state.pos + 1];
+        if (
+          after &&
+          after.type === "keyword" &&
+          typeof after.value === "string" &&
+          REPS_MODIFIER_FOLLOW.has(after.value)
+        ) {
+          advance(state);
+        }
+      }
+    }
     return { reps: [Math.trunc(first), Math.trunc(second)], amrap: false };
   }
 
@@ -2488,23 +2571,19 @@ function parseRepsSpec(state: ParseState): { reps: RepsSpec; amrap: boolean } {
   // standalone `s` after `NxN` becomes its own simple activity) is
   // preserved.
   const next = currentToken(state);
-  if (next.type === "bare_word" && (next.value === "s" || next.value === "m")) {
+  const isShortUnit =
+    next.type === "bare_word" && (next.value === "s" || next.value === "m");
+  const isLongUnit =
+    next.type === "keyword" &&
+    typeof next.value === "string" &&
+    (next.value === "seconds" || next.value === "minutes" || next.value === "hours");
+  if (isShortUnit || isLongUnit) {
     const after = state.tokens[state.pos + 1];
-    const modifierKeywords = new Set([
-      "rpe",
-      "rir",
-      "rest",
-      "tempo",
-      "weight",
-      "name",
-      "to_failure",
-      "bodyweight",
-    ]);
     if (
       after &&
       after.type === "keyword" &&
       typeof after.value === "string" &&
-      modifierKeywords.has(after.value)
+      REPS_MODIFIER_FOLLOW.has(after.value)
     ) {
       advance(state);
     }
