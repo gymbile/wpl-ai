@@ -515,10 +515,21 @@ function consumeNumberLike(state: LexerState): string {
       break;
     }
 
-    // Dot - single dot is decimal, ".." is range operator
+    // Dot - single dot is decimal, ".." is range operator. A trailing
+    // dot with no digit after it ("12.", "7.") is a model typo and is
+    // explicitly NOT consumed here — we leave the dot in the stream so
+    // tokenizeDots can decide what to do with it (skip as stray). The
+    // accumulated digits are emitted as a clean integer.
     if (c === ".") {
       if (peek(state, 1) === ".") {
         // Range operator - stop
+        break;
+      }
+      const after = peek(state, 1);
+      if (after === null || !isDigit(after)) {
+        // No digit after dot — stop before consuming so we emit the
+        // integer part. The dangling dot becomes the next token's
+        // problem (tokenizeDots will skip it).
         break;
       }
       parts.push(c);
@@ -755,7 +766,18 @@ function tokenizeDots(state: LexerState): void {
     return;
   }
 
-  // Single dot - part of an identifier or slug
+  // A bare `.` only makes semantic sense as part of an identifier/slug
+  // (e.g. `foo.bar`). Stray trailing dots after numbers ("12.", "7.")
+  // are typos that previously cascaded into invalid_number errors and
+  // silently truncated downstream blocks. If the dot is followed by
+  // anything non-alpha, skip it silently rather than rejecting.
+  const next = peek(state, 1);
+  if (next === null || !isAlpha(next)) {
+    advance(state);
+    return;
+  }
+
+  // Single dot followed by an identifier-like character — part of a slug.
   tokenizeIdentifier(state);
 }
 

@@ -475,19 +475,32 @@ function parseSections(state: ParseState): Sections {
         sections.rendering = parseRenderingSection(state);
         break;
       default: {
-        // All-caps words look like misspelled section keywords — flag them.
-        // Lowercase/mixed-case keywords (e.g. "minutes") are leftover nested
-        // tokens that the section parser didn't consume — exit silently.
+        // Models commonly emit free-form ALL-CAPS top-level blocks like
+        // `NUTRITION:`, `SUMMARY:`, `NOTES:` after the canonical PHASES
+        // section. These aren't part of the grammar, but they don't
+        // change the safety contract — they're prose annotations the
+        // model adds for human consumption. Skip the whole sub-block
+        // silently rather than failing the compile.
+        //
+        // Lowercase/mixed-case keywords (e.g. "minutes") are leftover
+        // nested tokens that the section parser didn't consume — exit
+        // silently as before.
         const val = String(tok.value);
         if (/^[A-Z_]+$/.test(val)) {
-          addError(
-            state,
-            unexpectedToken(
-              [...GRAMMAR.sections.required, ...GRAMMAR.sections.optional],
-              val,
-              tok.location,
-            ),
-          );
+          advance(state); // skip the keyword
+          if (currentToken(state).type === "colon") advance(state);
+          if (currentToken(state).type === "newline") advance(state);
+          if (currentToken(state).type === "indent") {
+            advance(state);
+            let depth = 1;
+            while (depth > 0 && currentToken(state).type !== "eof") {
+              const t = currentToken(state);
+              if (t.type === "indent") depth++;
+              else if (t.type === "dedent") depth--;
+              advance(state);
+            }
+          }
+          break;
         }
         return sections;
       }
