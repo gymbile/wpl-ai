@@ -2362,11 +2362,19 @@ function parseExerciseOrSimpleActivity(state: ParseState): Activity {
       };
     }
 
-    // Check for duration unit after number (e.g., "jumping_jacks 2m")
-    if (
-      next.type === "bare_word" &&
-      TIME_UNIT_SHORT_SET.has(next.value as string)
-    ) {
+    // Check for duration unit after number (e.g., "jumping_jacks 2m" or
+    // "cycling 10 minutes"). Accept both short and long unit forms so the
+    // unit token is always consumed; otherwise the long-word `minutes` /
+    // `seconds` / `hours` would leak into block-body parsing.
+    const isShortUnit = next.type === "bare_word" && TIME_UNIT_SHORT_SET.has(next.value as string);
+    const isLongUnit =
+      next.type === "keyword" &&
+      typeof next.value === "string" &&
+      (next.value === "minutes" ||
+        next.value === "seconds" ||
+        next.value === "hours" ||
+        next.value === "days");
+    if (isShortUnit || isLongUnit) {
       advance(state);
       return {
         kind: "simple",
@@ -2460,6 +2468,39 @@ function parseRepsSpec(state: ParseState): { reps: RepsSpec; amrap: boolean } {
     return { reps: [Math.trunc(first), Math.trunc(second)], amrap: false };
   }
 
+  // Tolerate trailing time-unit suffix on the reps number ("20s", "2m") —
+  // BUT only when followed by an exercise modifier keyword. Models often
+  // write `plank 3x30s rpe 6 rest 60 seconds` meaning "3 sets × 30 sec at
+  // RPE 6." Without consuming the `s`, the modifier keywords leak into
+  // parent parsing and silently truncate subsequent WEEK blocks.
+  //
+  // When `s`/`m` is followed by anything else (newline, indent, dedent),
+  // it stays in the stream so existing conformance behaviour (where a
+  // standalone `s` after `NxN` becomes its own simple activity) is
+  // preserved.
+  const next = currentToken(state);
+  if (next.type === "bare_word" && (next.value === "s" || next.value === "m")) {
+    const after = state.tokens[state.pos + 1];
+    const modifierKeywords = new Set([
+      "rpe",
+      "rir",
+      "rest",
+      "tempo",
+      "weight",
+      "name",
+      "to_failure",
+      "bodyweight",
+    ]);
+    if (
+      after &&
+      after.type === "keyword" &&
+      typeof after.value === "string" &&
+      modifierKeywords.has(after.value)
+    ) {
+      advance(state);
+    }
+  }
+
   return { reps: Math.trunc(first), amrap: false };
 }
 
@@ -2479,11 +2520,34 @@ function parseExerciseModifiers(
     switch (tok.value) {
       case "rpe":
         advance(state);
-        modifiers.rpe = Math.trunc(expectNumber(state));
+        // Support both `rpe 7` and `rpe 7..8`. Models frequently write
+        // ranges; previously the range tokens leaked into downstream
+        // parsing and silently truncated entire WEEK blocks.
+        {
+          const first = Math.trunc(expectNumber(state));
+          if (currentToken(state).type === "range") {
+            advance(state);
+            const second = Math.trunc(expectNumber(state));
+            modifiers.rpe_min = first;
+            modifiers.rpe_max = second;
+          } else {
+            modifiers.rpe = first;
+          }
+        }
         continue;
       case "rir":
         advance(state);
-        modifiers.rir = Math.trunc(expectNumber(state));
+        {
+          const first = Math.trunc(expectNumber(state));
+          if (currentToken(state).type === "range") {
+            advance(state);
+            const second = Math.trunc(expectNumber(state));
+            modifiers.rir_min = first;
+            modifiers.rir_max = second;
+          } else {
+            modifiers.rir = first;
+          }
+        }
         continue;
       case "tempo":
         advance(state);
@@ -2850,8 +2914,21 @@ function parseIntensity(state: ParseState): Intensity | null {
   switch (tok.value) {
     case "rpe": {
       advance(state);
-      const value = expectNumber(state);
-      return { type: "rpe", value, bounds: null, range: makeRange(state, fromOffset) };
+      const first = expectNumber(state);
+      // Support `rpe 7..8` (range) in addition to `rpe 7` (single value).
+      // Models commonly emit ranges to express target zones; treating them
+      // as a syntax error silently truncated the rest of the document.
+      if (currentToken(state).type === "range") {
+        advance(state);
+        const second = expectNumber(state);
+        return {
+          type: "rpe",
+          value: null,
+          bounds: [first, second],
+          range: makeRange(state, fromOffset),
+        };
+      }
+      return { type: "rpe", value: first, bounds: null, range: makeRange(state, fromOffset) };
     }
     case "heart_rate_zone": {
       advance(state);
