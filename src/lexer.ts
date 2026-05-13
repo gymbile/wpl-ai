@@ -526,11 +526,39 @@ function consumeNumberLike(state: LexerState): string {
       continue;
     }
 
-    // Digits, minus, T, Z
-    if (isDigit(c) || c === "-" || c === "T" || c === "Z") {
+    // Digits, T, Z — always consumable inside a number-like token.
+    if (isDigit(c) || c === "T" || c === "Z") {
       parts.push(c);
       advance(state);
       continue;
+    }
+
+    // Minus handling. Three cases:
+    //   1. Leading sign on a negative number (parts is empty) — consume.
+    //   2. Inside a date/datetime prefix (YYYY, YYYY-MM, YYYY-MM-DDThh:mm)
+    //      — consume so we can tokenise the full ISO date.
+    //   3. Anywhere else (e.g. `6-7`) — stop here and let the outer
+    //      tokeniser handle the minus, which produces [number 6][range
+    //      ..][number 7] via tokenizeMinusOrArrow's number-number
+    //      shortcut. Without this break we'd greedily swallow `6-7` as
+    //      one (invalid) number.
+    if (c === "-") {
+      if (parts.length === 0) {
+        parts.push(c);
+        advance(state);
+        continue;
+      }
+      const accStr = parts.join("");
+      const looksLikeDate =
+        /^\d{4}$/.test(accStr) ||
+        /^\d{4}-\d{1,2}$/.test(accStr) ||
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(accStr);
+      if (looksLikeDate) {
+        parts.push(c);
+        advance(state);
+        continue;
+      }
+      break;
     }
 
     // Trailing unit letters: s, m, h, d
@@ -694,7 +722,20 @@ function tokenizeMinusOrArrow(state: LexerState): void {
     return;
   }
 
+  // Range-as-hyphen: when a `-` sits between two numbers (`6-7`, `9-12`)
+  // and the previous emitted token was a number, treat it as a range
+  // operator (equivalent to `..`). Models routinely write ranges in
+  // natural English form. Without this they tokenise as `number minus
+  // number` and the parser sees three tokens it doesn't expect, which
+  // cascades into silent week-truncation.
   if (isDigit(next)) {
+    const last = state.tokens[state.tokens.length - 1];
+    if (last && last.type === "number") {
+      emitToken(state, "range", "..");
+      advance(state);
+      return;
+    }
+    // Otherwise it's a negative number literal (existing behaviour).
     tokenizeNumber(state);
     return;
   }
@@ -845,6 +886,40 @@ function tokenizeLineContent(state: LexerState): void {
 
       case "-":
         tokenizeMinusOrArrow(state);
+        continue;
+
+      // Unicode en-dash (U+2013) and em-dash (U+2014) are typographic
+      // variants of hyphen that LLMs frequently emit ("rpe 6–7", "weeks
+      // 9–12"). Normalise to hyphen behaviour so the surrounding range /
+      // minus / arrow tokenisation kicks in correctly.
+      case "–":
+      case "—":
+        // Splice a regular hyphen in place so tokenizeMinusOrArrow sees
+        // the canonical character without us having to duplicate its
+        // logic here. Position is preserved.
+        state.source =
+          state.source.slice(0, state.pos) + "-" + state.source.slice(state.pos + 1);
+        tokenizeMinusOrArrow(state);
+        continue;
+
+      // Other typographic punctuation that LLMs sprinkle into prose-y
+      // headers but carries no semantic value for the grammar. Skip
+      // silently rather than emit `invalid_character` errors that
+      // cascade into silent week-truncation downstream.
+      case ";":
+      case "&":
+      case "~":
+      case "@":
+      case "‘": // left single quote
+      case "’": // right single quote / typographic apostrophe
+      case "“": // left double quote
+      case "”": // right double quote
+      case "…": // ellipsis
+      case "≤": // ≤
+      case "≥": // ≥
+      case "·": // middle dot
+      case "•": // bullet
+        advance(state);
         continue;
 
       case ".":

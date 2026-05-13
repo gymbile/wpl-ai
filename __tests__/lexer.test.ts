@@ -779,7 +779,8 @@ describe("Error cases", () => {
   });
 
   it("invalid character produces error", () => {
-    expectError("PLAN @", "invalid_character");
+    // `^` is not in the typographic-tolerance set; expect error.
+    expectError("PLAN ^", "invalid_character");
   });
 
   it("lone ! is an invalid character", () => {
