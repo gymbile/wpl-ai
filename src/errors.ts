@@ -47,7 +47,8 @@ export type ParseErrorType =
   | "duplicate_section"
   | "invalid_structure"
   | "unknown_exercise_ref"
-  | "week_has_no_valid_days";
+  | "week_has_no_valid_days"
+  | "unknown_safety_section";
 
 export interface ParseError {
   kind: "parse";
@@ -352,6 +353,14 @@ export function unknownExerciseRef(
     got: ref,
     suggestions: suggestions ?? null,
   });
+}
+
+export function unknownSafetySection(section: string, location: Location): ParseError {
+  return parseError(
+    "unknown_safety_section",
+    `unknown section '${section}' looks safety-related — did you mean 'REQUIRES'? Refusing to skip it silently.`,
+    { location, got: section, suggestions: ["REQUIRES"] },
+  );
 }
 
 // ---------------------------------------------------------------------------

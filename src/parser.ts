@@ -81,6 +81,7 @@ import {
   unknownExerciseRef,
   invalidStructure,
   weekHasNoValidDays,
+  unknownSafetySection,
 } from "./errors.js";
 
 import { validateExercise, bestMatchWithSimilarity } from "./exercise-matcher.js";
@@ -502,6 +503,15 @@ function parseSections(state: ParseState): Sections {
         // silently as before.
         const val = String(tok.value);
         if (/^[A-Z_]+$/.test(val)) {
+          // Fail closed on safety-adjacent section names. A one-character typo in
+          // REQUIRES must not silently erase the plan's entire safety contract —
+          // that exact failure mode shipped in <=1.13 (a plural-form `REQUIREMENTS:`
+          // deleted all contraindications with zero warnings).
+          const SAFETY_SECTION_RE = /^(REQUIRE|CONTRA|SAFETY|PRECAUTION|MEDICAL|CLEARANCE)/;
+          if (SAFETY_SECTION_RE.test(val)) {
+            addError(state, unknownSafetySection(val, tok.location));
+            return sections;
+          }
           const skipLoc = tok.location;
           addRepair(state, {
             type: "skipped_section",
