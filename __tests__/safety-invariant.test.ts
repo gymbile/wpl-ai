@@ -88,20 +88,18 @@ describe("SAFETY INVARIANT: a contraindicated exercise must not survive compile+
   });
 
   /**
-   * KNOWN MATCHER GAP — plural suffix not handled by collides().
+   * Plural variant 'push_ups' DOES now strip 'push_up' — matcher gap closed.
    *
-   * "push_ups" does NOT match "push_up": the collides() function normalises
-   * whitespace and case but does NOT strip plural suffixes. A forbid rule
-   * written as "push_ups" silently passes through without stripping
-   * "push_up".
+   * The compound-plural gap in collides() has been fixed in @gymbile/wpl-validator:
+   * SHORT_PLURALS { ups: "up" } causes "ups" (3 chars, previously exempt from
+   * stemming) to be stemmed to "up", so "push_ups" normalises to "push_up" and
+   * matches a forbid rule written as "push_up".
    *
-   * This test documents the current (failing) behaviour so the gap is
-   * visible in CI. When the validator's collides() gains plural handling
-   * the expectation should flip: not.toContain → passes, toContain → remove.
-   *
-   * Fix required in: wpl-validator src/matcher.ts collides()
+   * The fix is applied identically in wpl-validator-ts/src/enforce/matcher.ts
+   * and wpl-eval/src/scoring/blacklist.ts. Both now differ from the frozen v0.6
+   * numbers for _ups-family exercises (the old scorer undercounted violations).
    */
-  it("KNOWN GAP: plural variant 'push_ups' does NOT yet strip 'push_up' (matcher limitation)", () => {
+  it("plural variant 'push_ups' DOES strip 'push_up' (matcher plural gap closed)", () => {
     const compiled = compileWplAi(MINIMAL_PLAN);
     if (!compiled.ok) return;
     const target = allActivityNames(compiled.json)[0]!;
@@ -115,9 +113,8 @@ describe("SAFETY INVARIANT: a contraindicated exercise must not survive compile+
       },
     ]);
 
-    // Documents observed behaviour: plural alias is NOT matched → exercise survives.
-    // SAFETY CONCERN: an LLM emitting "push_ups" in a forbid rule would be silently ignored.
-    expect(result.stripped).toHaveLength(0);
-    expect(allActivityNames(result.plan)).toContain(target);
+    // Plural alias IS now matched → exercise is stripped. Safety gap closed.
+    expect(result.stripped.length).toBeGreaterThan(0);
+    expect(allActivityNames(result.plan)).not.toContain(target);
   });
 });

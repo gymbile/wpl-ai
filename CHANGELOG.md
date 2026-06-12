@@ -7,6 +7,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Changed
+- The matcher plural gap documented in the safety-invariant test is now closed:
+  `@gymbile/wpl-validator`'s `collides()` now correctly matches `push_ups` against
+  a `push_up` forbid rule (and the full `_ups` family). The `safety-invariant.test.ts`
+  known-gap assertion has been flipped accordingly. Future runs will detect violations
+  for `_ups`-family exercises that the v0.6 scorer missed.
+
 ## [2.0.0] — 2026-06-12
 
 ### BREAKING
