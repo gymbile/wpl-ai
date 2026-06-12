@@ -724,6 +724,35 @@ export interface AthleteThresholds {
   one_rm?: OneRMEntry[];
 }
 
+// ---------------------------------------------------------------------------
+// Repairs ledger
+// ---------------------------------------------------------------------------
+
+/**
+ * A repair is anything the tolerant parser changed or dropped on the way to
+ * a successful compile. Repairs NEVER include safety-section deletions or
+ * contraindication downgrades — those are hard errors (fail closed). The
+ * ledger exists so an orchestrator (or a human reviewing an AI-generated
+ * plan) can see every silent normalization that occurred.
+ */
+export interface Repair {
+  type:
+    | "skipped_section"        // unknown ALL-CAPS section dropped (section: name)
+    | "skipped_block"          // malformed day-level activity block dropped
+    | "exercise_substitution"  // fuzzy ref correction (from, to, similarity)
+    | "unknown_exercise"       // ref kept verbatim but absent from catalog (ref)
+    | "defaulted_value"        // lenient expect* fabricated a value (expected, got, defaulted_to)
+    | "discarded_modifier";    // simple-activity modifier value dropped
+  message: string;
+  line?: number;
+  column?: number;
+  [k: string]: unknown;
+}
+
+// ---------------------------------------------------------------------------
+// Document root
+// ---------------------------------------------------------------------------
+
 export interface Document {
   header: Header;
   goals: Goal[] | null;

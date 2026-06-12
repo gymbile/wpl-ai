@@ -69,13 +69,24 @@ export function suggest(unknownRef: string): string[] {
 }
 
 export function bestMatch(unknownRef: string): string | null {
+  return bestMatchWithSimilarity(unknownRef)?.ref ?? null;
+}
+
+/**
+ * Like bestMatch() but returns both the best-matching ref and the similarity
+ * score. Used by the repairs ledger in parser.ts to record the fuzzy
+ * substitution similarity without re-running the algorithm.
+ */
+export function bestMatchWithSimilarity(
+  unknownRef: string,
+): { ref: string; similarity: number } | null {
   const normalized = normalize(unknownRef);
   let best: { ref: string; sim: number } | null = null;
   for (const known of ALL_EXERCISES) {
     const sim = jaroWinkler(normalized, normalize(known));
     if (!best || sim > best.sim) best = { ref: known, sim };
   }
-  return best && best.sim > 0.85 ? best.ref : null;
+  return best && best.sim > 0.85 ? { ref: best.ref, similarity: best.sim } : null;
 }
 
 export function validateExercise(ref: string): { ok: true } | { ok: false; suggestions: string[] } {

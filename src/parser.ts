@@ -70,6 +70,7 @@ import type {
   Rendering,
   MeasurementSpec,
   MeasurementMetric,
+  Repair,
 } from "./types.js";
 
 import type { Location, WplError, ParseError } from "./errors.js";
@@ -82,7 +83,7 @@ import {
   weekHasNoValidDays,
 } from "./errors.js";
 
-import { validateExercise, bestMatch } from "./exercise-matcher.js";
+import { validateExercise, bestMatchWithSimilarity } from "./exercise-matcher.js";
 import type { Token, TokenType } from "./lexer.js";
 import {
   GRAMMAR,
@@ -127,6 +128,7 @@ interface ParseState {
   tokens: Token[];
   pos: number;
   errors: ParseError[];
+  repairs: Repair[];
 }
 
 // ---------------------------------------------------------------------------
@@ -213,6 +215,10 @@ function addError(state: ParseState, error: ParseError): void {
   state.errors.push(error);
 }
 
+function addRepair(state: ParseState, repair: Repair): void {
+  state.repairs.push(repair);
+}
+
 /** Skip all tokens until the next newline, dedent, or eof (does not consume the terminator). */
 function skipToEndOfLine(state: ParseState): void {
   while (true) {
@@ -228,11 +234,12 @@ function skipToEndOfLine(state: ParseState): void {
 
 export function parse(
   tokens: Token[],
-): { ok: true; document: Document } | { ok: false; errors: WplError[] } {
+): { ok: true; document: Document; repairs: Repair[] } | { ok: false; errors: WplError[] } {
   const state: ParseState = {
     tokens,
     pos: 0,
     errors: [],
+    repairs: [],
   };
 
   const document = parseDocument(state);
@@ -245,7 +252,7 @@ export function parse(
     return { ok: false, errors: state.errors };
   }
 
-  return { ok: true, document };
+  return { ok: true, document, repairs: state.repairs };
 }
 
 // ---------------------------------------------------------------------------
@@ -495,6 +502,14 @@ function parseSections(state: ParseState): Sections {
         // silently as before.
         const val = String(tok.value);
         if (/^[A-Z_]+$/.test(val)) {
+          const skipLoc = tok.location;
+          addRepair(state, {
+            type: "skipped_section",
+            section: val,
+            message: `Unknown top-level section "${val}" skipped`,
+            line: skipLoc.line,
+            column: skipLoc.column,
+          });
           advance(state); // skip the keyword
           if (currentToken(state).type === "colon") advance(state);
           if (currentToken(state).type === "newline") advance(state);
@@ -2126,6 +2141,13 @@ function parseDayBody(state: ParseState): {
       if (typeof tok.value === "string" && malformedActivityBlocks.has(tok.value)) {
         const peek = state.tokens[state.pos + 1];
         if (peek && peek.type === "colon") {
+          const blockLoc = tok.location;
+          addRepair(state, {
+            type: "skipped_block",
+            message: `Malformed day-level "${tok.value}:" block skipped (activity type used as bare block outside a block context)`,
+            line: blockLoc.line,
+            column: blockLoc.column,
+          });
           advance(state); // skip keyword
           advance(state); // skip ":"
           if (currentToken(state).type === "newline") advance(state);
@@ -2495,9 +2517,16 @@ function resolveExerciseRef(state: ParseState, ref: string): string {
   // an existing exercise: `pushup` → `push_up`, `bnech_press` →
   // `bench_press`, `dumbbell_chest_press` → `dumbbell_press`. Substitute
   // silently so the compile keeps the canonical form in the JSON.
-  const best = bestMatch(ref);
-  if (best !== null) {
-    return best;
+  const bestResult = bestMatchWithSimilarity(ref);
+  if (bestResult !== null) {
+    addRepair(state, {
+      type: "exercise_substitution",
+      from: ref,
+      to: bestResult.ref,
+      similarity: bestResult.similarity,
+      message: `Exercise ref "${ref}" auto-corrected to "${bestResult.ref}" (similarity ${bestResult.similarity.toFixed(3)})`,
+    });
+    return bestResult.ref;
   }
 
   // Tier 2: low-confidence fallback. The ref doesn't match anything
@@ -2513,7 +2542,11 @@ function resolveExerciseRef(state: ParseState, ref: string): string {
   // `result.suggestions` is still threaded through state.warnings via
   // the semantic-validator pass downstream — orchestrators that re-prompt
   // on warnings can still discover the candidate substitutions.
-  void state;
+  addRepair(state, {
+    type: "unknown_exercise",
+    ref,
+    message: `Exercise ref "${ref}" is not in the catalog; kept verbatim`,
+  });
   void result;
   return ref;
 }
@@ -2672,6 +2705,15 @@ function consumeSimpleActivityModifiers(state: ParseState): void {
     const tok = currentToken(state);
     if (tok.type !== "keyword") return;
     if (typeof tok.value !== "string" || !modifierKeywords.has(tok.value)) return;
+    const modLoc = tok.location;
+    const modName = tok.value;
+    addRepair(state, {
+      type: "discarded_modifier",
+      modifier: modName,
+      message: `Modifier "${modName}" on simple activity discarded (no field in SimpleActivity schema)`,
+      line: modLoc.line,
+      column: modLoc.column,
+    });
     advance(state);
     // Each known modifier takes at least one argument; consume tokens
     // until we hit a newline, dedent, eof, or another modifier keyword.
@@ -4759,7 +4801,17 @@ function expectBareWord(state: ParseState): string {
     return tok.value as string;
   }
   // Lenient: return the value as string without advancing
-  return `${tok.value}`;
+  const defaulted = `${tok.value}`;
+  addRepair(state, {
+    type: "defaulted_value",
+    expected: "bare_word",
+    got: tok.type,
+    defaulted_to: defaulted,
+    message: `Expected bare_word but got ${tok.type} "${tok.value}"; used "${defaulted}" as bare word`,
+    line: tok.location.line,
+    column: tok.location.column,
+  });
+  return defaulted;
 }
 
 function expectBareWordOrKeyword(state: ParseState): string {
@@ -4768,6 +4820,15 @@ function expectBareWordOrKeyword(state: ParseState): string {
     advance(state);
     return tok.value as string;
   }
+  addRepair(state, {
+    type: "defaulted_value",
+    expected: "bare_word_or_keyword",
+    got: tok.type,
+    defaulted_to: "",
+    message: `Expected bare word or keyword but got ${tok.type} "${tok.value}"; defaulted to ""`,
+    line: tok.location.line,
+    column: tok.location.column,
+  });
   return "";
 }
 
@@ -4777,6 +4838,15 @@ function expectString(state: ParseState): string {
     advance(state);
     return tok.value as string;
   }
+  addRepair(state, {
+    type: "defaulted_value",
+    expected: "string",
+    got: tok.type,
+    defaulted_to: "",
+    message: `Expected string but got ${tok.type} "${tok.value}"; defaulted to ""`,
+    line: tok.location.line,
+    column: tok.location.column,
+  });
   return "";
 }
 
@@ -4786,6 +4856,15 @@ function expectNumber(state: ParseState): number {
     advance(state);
     return tok.value as number;
   }
+  addRepair(state, {
+    type: "defaulted_value",
+    expected: "number",
+    got: tok.type,
+    defaulted_to: 0,
+    message: `Expected number but got ${tok.type} "${tok.value}"; defaulted to 0`,
+    line: tok.location.line,
+    column: tok.location.column,
+  });
   return 0;
 }
 
@@ -4795,7 +4874,17 @@ function expectDate(state: ParseState): string {
     advance(state);
     return tok.value as string;
   }
-  return new Date().toISOString().slice(0, 10);
+  const defaulted = new Date().toISOString().slice(0, 10);
+  addRepair(state, {
+    type: "defaulted_value",
+    expected: "date",
+    got: tok.type,
+    defaulted_to: defaulted,
+    message: `Expected date (YYYY-MM-DD) but got ${tok.type} "${tok.value}"; defaulted to "${defaulted}"`,
+    line: tok.location.line,
+    column: tok.location.column,
+  });
+  return defaulted;
 }
 
 function expectTime(state: ParseState): string {
@@ -4804,6 +4893,15 @@ function expectTime(state: ParseState): string {
     advance(state);
     return tok.value as string;
   }
+  addRepair(state, {
+    type: "defaulted_value",
+    expected: "time",
+    got: tok.type,
+    defaulted_to: "00:00",
+    message: `Expected time (HH:MM) but got ${tok.type} "${tok.value}"; defaulted to "00:00"`,
+    line: tok.location.line,
+    column: tok.location.column,
+  });
   return "00:00";
 }
 
@@ -4816,6 +4914,15 @@ function expectBoolean(state: ParseState): boolean {
     advance(state);
     return tok.value === "true";
   }
+  addRepair(state, {
+    type: "defaulted_value",
+    expected: "boolean",
+    got: tok.type,
+    defaulted_to: false,
+    message: `Expected boolean (true/false) but got ${tok.type} "${tok.value}"; defaulted to false`,
+    line: tok.location.line,
+    column: tok.location.column,
+  });
   return false;
 }
 
@@ -4831,6 +4938,15 @@ function expectEnabledDisabled(state: ParseState): boolean {
       return false;
     }
   }
+  addRepair(state, {
+    type: "defaulted_value",
+    expected: "enabled_or_disabled",
+    got: tok.type,
+    defaulted_to: false,
+    message: `Expected "enabled" or "disabled" but got ${tok.type} "${tok.value}"; defaulted to false`,
+    line: tok.location.line,
+    column: tok.location.column,
+  });
   return false;
 }
 
