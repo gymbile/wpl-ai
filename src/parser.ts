@@ -1023,43 +1023,95 @@ function parseContraindication(state: ParseState): Contraindication {
   const tok = currentToken(state);
   if (tok.type === "keyword" && tok.value === "severity") {
     advance(state);
-    const sevStr = currentToken(state).value as string;
+    const sevTok = currentToken(state);
+    const sevStr = sevTok.value as string;
+    const sevLoc = sevTok.location;
     advance(state);
     if (CONTRAINDICATION_SEVERITY_SET.has(sevStr)) {
       severity = sevStr as ContraindicationSeverity;
+    } else {
+      addError(
+        state,
+        invalidValue(
+          "contraindication severity",
+          sevStr,
+          [...GRAMMAR.contraindication_severity],
+          sevLoc,
+        ),
+      );
     }
   }
 
   const tok2 = currentToken(state);
   if (tok2.type === "keyword" && tok2.value === "action") {
     advance(state);
-    const actionStr = currentToken(state).value as string;
+    const actionTok = currentToken(state);
+    const actionStr = actionTok.value as string;
+    const actionLoc = actionTok.location;
     advance(state);
     if (CONTRAINDICATION_ACTION_SET.has(actionStr)) {
       action = actionStr as ContraindicationAction;
+    } else {
+      addError(
+        state,
+        invalidValue(
+          "contraindication action",
+          actionStr,
+          [...GRAMMAR.contraindication_action],
+          actionLoc,
+        ),
+      );
     }
   } else if (tok2.type === "arrow") {
     // Legacy form: -> <action>
     advance(state); // skip arrow
-    const actionStr = currentToken(state).value as string;
+    const actionTok = currentToken(state);
+    const actionStr = actionTok.value as string;
+    const actionLoc = actionTok.location;
     advance(state);
     if (CONTRAINDICATION_ACTION_SET.has(actionStr)) {
       action = actionStr as ContraindicationAction;
+    } else {
+      addError(
+        state,
+        invalidValue(
+          "contraindication action",
+          actionStr,
+          [...GRAMMAR.contraindication_action],
+          actionLoc,
+        ),
+      );
     }
   }
 
   let affectsList: string[] | null = null;
+
+  // Skip newlines before checking for an indented affects sub-block.
+  // The contraindication line ends with a newline; the affects block (if
+  // present) starts on the next indented line.
+  skipNewlines(state);
 
   if (currentToken(state).type === "indent") {
     advance(state);
     skipNewlines(state);
 
     if (
-      currentToken(state).type === "keyword" &&
+      (currentToken(state).type === "keyword" ||
+        currentToken(state).type === "bare_word") &&
       currentToken(state).value === "affects"
     ) {
       advance(state);
-      affectsList = parseEnumList(state);
+      // Resolve each entry through the exercise-ref machinery so that typos
+      // (e.g. "pushup" → "push_up") are auto-corrected and recorded as
+      // exercise_substitution repairs — identical behaviour to body refs.
+      affectsList = parseEnumList(state).map((ref) =>
+        resolveExerciseRef(state, ref),
+      );
+
+      // parseEnumList stops at newline; skip it before checking for the
+      // matching dedent so the REQUIRES body loop doesn't mistake the dedent
+      // as the end of the whole REQUIRES block.
+      skipNewlines(state);
 
       if (currentToken(state).type === "dedent") {
         advance(state);
