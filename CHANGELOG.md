@@ -7,6 +7,44 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [2.0.0] — 2026-06-12
+
+### BREAKING
+
+- Unknown ALL-CAPS sections matching `REQUIRE*`, `CONTRA*`, `SAFETY*`,
+  `PRECAUTION*`, `MEDICAL*`, or `CLEARANCE*` are now hard parse errors
+  (previously skipped silently — a typo'd `REQUIREMENTS:` erased all
+  contraindications with no trace).
+- Unknown contraindication `severity` or `action` values are now hard parse
+  errors (previously: severity dropped, action downgraded to `"exclude"`).
+
+### Added
+
+- `repairs: Repair[]` on the `ok: true` `CompileResult`: every tolerant
+  normalisation the parser made is recorded — skipped sections/blocks, fuzzy
+  exercise substitutions (from/to/similarity), uncataloged refs kept verbatim,
+  lenient-default fabrications, discarded modifiers.
+- Semantic warning for exercise refs absent from the `ALL_EXERCISES` catalog
+  (the warning the 1.12 comments claimed existed but was never emitted).
+- Contraindication `affects` lists are now resolved through the same
+  exercise-ref machinery as body exercise refs (typo correction + repairs +
+  catalog warnings). Previously `affects` parsing was non-functional.
+- End-to-end safety-invariant test with `@gymbile/wpl-validator`'s `enforce()`:
+  asserts a contraindicated exercise compiled through `compileWplAi` cannot
+  survive a call to `enforce()`.
+
+### Fixed
+
+- A contraindication with an `affects` block followed immediately by another
+  `contraindication` entry dropped the second entry silently; both are now
+  parsed correctly.
+- README: Node version requirement corrected from ≥18 to ≥20 (matching
+  `package.json` `engines` since v1.8.1).
+- README: `bestMatch` example replaced — the previous example claimed
+  `bestMatch("dummbell_curl")` returns `'dumbbell_curl'`, but `dumbbell_curl`
+  is not a catalog entry and the function returns `'dumbbell_row'`. New example
+  uses the verified pair `bestMatch("bnech_press") → 'bench_press'`.
+
 ## [1.13.0] — 2026-05-13
 
 ### Added — vocabulary expansion (corpus-driven)
