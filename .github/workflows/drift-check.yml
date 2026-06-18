@@ -11,21 +11,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Resolve latest gymbile/wpl tag
-        id: tag
-        run: |
-          latest=$(git ls-remote --tags https://github.com/gymbile/wpl.git \
-                  | grep 'refs/tags/v' | grep -v '\^{}' \
-                  | sed 's|.*refs/tags/||' | sort -V | tail -1)
-          echo "latest=$latest" >> $GITHUB_OUTPUT
       - name: Read vendored version
         id: vendored
         run: echo "version=$(cat src/data/exercises-version.txt)" >> $GITHUB_OUTPUT
-      - name: Diff vendored exercises.json against upstream
+      - name: Diff vendored exercises.json against the upstream release it pins
         run: |
-          curl -sSL "https://raw.githubusercontent.com/gymbile/wpl/${{ steps.tag.outputs.latest }}/data/exercises.json" -o /tmp/upstream-exercises.json
+          tag="v${{ steps.vendored.outputs.version }}"
+          curl -sSL "https://raw.githubusercontent.com/gymbile/wpl/${tag}/data/exercises.json" -o /tmp/upstream-exercises.json
           if ! diff -q src/data/exercises.json /tmp/upstream-exercises.json > /dev/null; then
-            echo "::error::Vendored exercises.json drifted from gymbile/wpl@${{ steps.tag.outputs.latest }} (vendored data version: ${{ steps.vendored.outputs.version }})."
+            echo "::error::Vendored exercises.json drifted from gymbile/wpl@${tag} (vendored data version: ${{ steps.vendored.outputs.version }}). The vendored copy no longer matches the release it claims to track."
             exit 1
           fi
 
