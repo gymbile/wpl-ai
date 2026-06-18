@@ -19,6 +19,7 @@ import type {
   SourceRange,
 } from "./types.js";
 
+import { isKnownExercise } from "./exercises.js";
 import { validateVocabulary } from "./vocabulary-matcher.js";
 import {
   GOAL_CATEGORIES, GOAL_CATEGORY_SET,
@@ -243,7 +244,20 @@ function validateActivityValues(
     case "habit":
       checkVocabulary(activity.category, "habit category", HABIT_CATEGORY_SET, HABIT_CATEGORIES, activity.range, sm, warnings);
       break;
-    case "exercise":
+    case "exercise": {
+      // C3: warn when the exercise ref was kept verbatim by the tier-2 path
+      // (unknown to the catalog AND no fuzzy auto-correction was applied).
+      // Cardio modalities (e.g. "running") may appear as exercise_ref in
+      // hybrid/workout plans — they are valid and should not warn.
+      const ref = activity.exercise_ref;
+      if (!isKnownExercise(ref) && !CARDIO_MODALITY_SET.has(ref)) {
+        const loc = sm.locateRange(activity.range, ref);
+        warnings.push({
+          severity: "warning",
+          message: `'${ref}' is not a known exercise in the catalog — it cannot be checked against contraindications by name; verify it is intentional`,
+          ...loc,
+        });
+      }
       if (activity.weight?.unit && activity.weight.type === "absolute") {
         // Weight sub-node has no range yet; fall back to the exercise's range.
         // TODO(Refactor C): once Weight carries a range, use it directly.
@@ -253,6 +267,7 @@ function validateActivityValues(
         checkVocabulary(activity.weight.unit, "weight unit", WEIGHT_UNIT_SET, WEIGHT_UNITS, activity.range, sm, warnings);
       }
       break;
+    }
   }
 }
 

@@ -38,7 +38,7 @@ WPL-AI source ──[tokenize]──▶ Tokens ──[parse]──▶ AST ──
 npm install @gymbile/wpl-ai
 ```
 
-Requires Node ≥18. Ships dual ESM + CJS builds with TypeScript declarations.
+Requires Node ≥20. Ships dual ESM + CJS builds with TypeScript declarations.
 
 ```ts
 // ESM
@@ -108,6 +108,7 @@ type CompileResult =
       warnings: SemanticWarning[];          // DSL-level vocabulary/consistency warnings
       validation: ValidationResult;         // Schema + semantic findings (re-exported from wpl-validator)
       pointerMap: PointerSourceMap;         // JSONPointer → SourceRange (see below)
+      repairs: Repair[];                    // Every tolerant normalisation the parser made (see Safety posture)
     }
   | {
       ok: false;
@@ -209,7 +210,7 @@ import { validateVocabulary } from "@gymbile/wpl-ai";
 
 isKnownExercise("push_up");                   // → true
 suggest("pushp", { limit: 3 });               // → ['push_up', 'push_press', ...]
-bestMatch("dummbell_curl");                   // → 'dumbbell_curl' (fuzzy)
+bestMatch("bnech_press");                     // → 'bench_press' (fuzzy)
 ```
 
 `validateVocabulary` is what powers the DSL-level `SemanticWarning`s — it flags references to unknown vocabulary terms with suggestions for the closest match.
@@ -378,6 +379,50 @@ After compile produces JSON, the validator runs two passes against the canonical
 Findings are returned as `result.validation: ValidationResult`. **Severity matters:** `error`-severity findings make `result.validation.valid === false`; `warning`-severity findings (e.g., `PHASE_DURATION_MISMATCH`) don't.
 
 See [validator error codes](https://github.com/gymbile/wpl/blob/main/conformance/error-codes.md) for the full list.
+
+---
+
+## Safety posture (2.0)
+
+Version 2.0 tightens the parser's safety-adjacent paths from silent-best-effort to fail-closed.
+
+### Fail-closed safety sections
+
+Any ALL-CAPS section whose name matches `REQUIRE*`, `CONTRA*`, `SAFETY*`, `PRECAUTION*`, `MEDICAL*`, or `CLEARANCE*` that the parser doesn't recognise is now a **hard parse error** (`ok: false`). Previously these were skipped silently — a typo like `REQUIREMENTS:` erased every contraindication entry with no trace.
+
+### Strict contraindications
+
+Unknown `severity` or `action` values on a `contraindication` block are now hard errors instead of silent downgrades. This closes the path where a typo'd action (e.g. `"ignroe"`) would silently become `"exclude"`, changing clinical intent without any signal.
+
+### Repairs ledger
+
+Every tolerant normalisation that _does_ succeed is recorded in `result.repairs: Repair[]` on the `ok: true` branch. Orchestrators can inspect this after every compile:
+
+```ts
+import { compileWplAi } from "@gymbile/wpl-ai";
+
+const result = compileWplAi(source);
+
+if (result.ok) {
+  for (const r of result.repairs) {
+    // r.type: "skipped_section" | "skipped_block" | "exercise_substitution"
+    //       | "unknown_exercise" | "defaulted_value" | "discarded_modifier"
+    // r.message: human-readable explanation
+    // r.line / r.column: source position (when available)
+    console.warn(`[repair:${r.type}] ${r.message}`);
+  }
+}
+```
+
+Typical repairs: fuzzy exercise substitutions (`from`/`to`/`similarity`), exercise refs kept verbatim that are absent from the catalog, unrecognised ALL-CAPS sections that don't match a safety pattern (safe to skip), and lenient-default fabrications.
+
+### Unknown-exercise warnings
+
+Compile-time `warnings` now include a semantic warning for every exercise ref that is not in the `ALL_EXERCISES` catalog. Previously the 1.12 comments claimed this warning existed but it was never emitted.
+
+### Runtime stripping — `@gymbile/wpl-validator`'s `enforce()`
+
+The compile-time safety invariants above cover the DSL→JSON path. The complementary runtime half is `enforce()` from [`@gymbile/wpl-validator`](https://www.npmjs.com/package/@gymbile/wpl-validator): given a compiled WPL JSON plan and a user's health profile, it strips or modifies any activities that violate the user's active contraindications — before the plan is ever served. The end-to-end invariant test (`__tests__/safety-invariant.test.ts`) asserts that a contraindicated exercise compiled through `compileWplAi` cannot survive a call to `enforce()`.
 
 ---
 

@@ -7,7 +7,7 @@ import { parse } from "./parser.js";
 import { compile } from "./compiler.js";
 import { validateSemantics, type SemanticWarning } from "./validator.js";
 import { validate as validateWpl, type ValidationResult } from "@gymbile/wpl-validator";
-import type { Document, PointerSourceMap } from "./types.js";
+import type { Document, PointerSourceMap, Repair } from "./types.js";
 import type { WplError } from "./errors.js";
 import { formatErrors, errorSummary } from "./errors.js";
 
@@ -23,6 +23,7 @@ export type CompileResult =
       warnings: SemanticWarning[];
       validation: ValidationResult;
       pointerMap: PointerSourceMap;
+      repairs: Repair[];
     }
   | { ok: false; errors: WplError[]; formatted: string; summary: string };
 
@@ -71,6 +72,7 @@ export function compileWplAi(source: string): CompileResult {
     warnings,
     validation,
     pointerMap: compileResult.pointerMap,
+    repairs: parseResult.repairs,
   };
 }
 

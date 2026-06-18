@@ -1,6 +1,6 @@
 {
   "name": "@gymbile/wpl-ai",
-  "version": "1.13.0",
+  "version": "2.1.0",
   "description": "WPL-AI compiler: parse and compile WPL-AI DSL into WPL JSON",
   "type": "module",
   "sideEffects": false,
@@ -27,6 +27,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
+    "gen:exercises": "node scripts/gen-exercises.mjs",
     "prepublishOnly": "npm run test && npm run build"
   },
   "publishConfig": {
@@ -55,7 +56,7 @@
   },
   "license": "Apache-2.0",
   "dependencies": {
-    "@gymbile/wpl-validator": "^1.7.1",
+    "@gymbile/wpl-validator": "^1.8.0",
     "ajv": "^8.18.0"
   },
   "devDependencies": {
