@@ -14,6 +14,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   known-gap assertion has been flipped accordingly. Future runs will detect violations
   for `_ups`-family exercises that the v0.6 scorer missed.
 
+## [2.1.0] — 2026-06-18
+
+### Added
+
+- Canonical exercise catalog SSOT: `src/exercises.ts` is now generated from a
+  vendored copy of `wpl/data/exercises.json` via `npm run gen:exercises`; adds
+  `EXERCISES_BY_CATEGORY` export; adds drift-check workflow. Public API unchanged
+  (`ALL_EXERCISES`, per-category consts, `isKnownExercise`).
+
 ## [2.0.0] — 2026-06-12
 
 ### BREAKING
