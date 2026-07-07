@@ -7,6 +7,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Fixed
+- Recognize `general_fitness` goal category (WPL 1.9.0) — WPL-AI plans using it no
+  longer emit a spurious "unknown goal category" warning.
+
 ### Changed
 - The matcher plural gap documented in the safety-invariant test is now closed:
   `@gymbile/wpl-validator`'s `collides()` now correctly matches `push_ups` against
