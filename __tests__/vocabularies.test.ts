@@ -65,7 +65,7 @@ describe("Vocabulary lists", () => {
 // ---------------------------------------------------------------------------
 describe("Spec-mandated values", () => {
   it("goal categories include spec values", () => {
-    for (const v of ["weight_loss", "muscle_gain", "endurance", "flexibility", "strength", "mental_wellness", "nutrition", "habit", "custom"]) {
+    for (const v of ["weight_loss", "muscle_gain", "endurance", "flexibility", "strength", "mental_wellness", "nutrition", "habit", "general_fitness", "custom"]) {
       expect(GOAL_CATEGORY_SET.has(v)).toBe(true);
     }
   });
