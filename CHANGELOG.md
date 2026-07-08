@@ -7,9 +7,35 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [2.2.0] — 2026-07-08
+
+### Added — Elixir-twin parity (gymbile Phase-1 hardening)
+
+Brings `@gymbile/wpl-ai` to behavioral parity with the `wpl_ai` Elixir twin so the
+two published libraries compile identical output. Verified with a cross-language
+differential over all 149 conformance fixtures plus gymbile-specific shapes
+(146/149 byte-identical; the other 3 differ only by `1.0` vs `1` on a macro max —
+JS has no int/float distinction, i.e. semantically equal).
+
+- Accept keyword tokens in equipment lists for reserved names.
+- Case-insensitive `REQUIRES` directives (`AGE`, `FITNESS`, …) and the single-number
+  `AGE N` form (no range).
+- Meal-block parser hardened against range macros (`PROTEIN 10..15g`) and typo keywords.
+- Inline `EQUIPMENT` lists (no colon, e.g. `EQUIPMENT dumbbells cables bodyweight`)
+  and tolerant freeform `RULE` lines directly in `PERSONALIZATION` (skipped with a repair).
+
 ### Fixed
 - Recognize `general_fitness` goal category (WPL 1.9.0) — WPL-AI plans using it no
   longer emit a spurious "unknown goal category" warning.
+- Stray prescription tokens no longer leak into spurious `simple`/`cardio` activities
+  (e.g. `side_plank 3x20 seconds each side` no longer produces "Seconds"/"Each"/"Side").
+- Inline named cardio: `<modality> continuous:` (also `intervals:`/`fartlek:`) with an
+  indented `total … / zone …` body now compiles to a single `cardio` activity retaining
+  duration and zone, instead of three spurious `Continuous`/`Total`/`Zone` activities.
+- Bare recovery exercises inside a `cooldown:` block now compile to flat
+  `recovery_exercise` activities (canonical, matching the Elixir twin and preserving the
+  exercise name) instead of a wrapped `recovery`/"Stretching" activity. The explicit
+  `recovery <modality>:` block form still compiles to a grouped `recovery` activity.
 
 ### Changed
 - The matcher plural gap documented in the safety-invariant test is now closed:
