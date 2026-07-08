@@ -405,6 +405,8 @@ function getActivityLabel(activity: Activity): string {
       return activity.category;
     case "recovery":
       return activity.category;
+    case "recovery_exercise":
+      return activity.name;
     case "habit":
       return activity.category;
     case "simple":

@@ -353,18 +353,13 @@ PHASES
     expect(activities).toBeDefined();
     expect(activities.length).toBe(1);
 
+    // Bare cooldown exercises compile as flat recovery_exercise activities (Elixir parity)
     const recovery = activities[0];
-    expect(recovery.type).toBe("recovery");
-    // Synthesised cooldown stretches are normalised to category "stretching"
-    expect(recovery.category).toBe("stretching");
-    const prescription = recovery.prescription as Record<string, unknown>;
-    const exercises = prescription.exercises as Record<string, unknown>[];
-    expect(exercises).toBeDefined();
-    expect(exercises.length).toBe(1);
-    expect(exercises[0].name).toBe("chest_stretch");
-    expect(exercises[0].hold_seconds).toBe(30);
-    expect(exercises[0].reps).toBe(2);
-    expect(exercises[0].sides).toBe("both");
+    expect(recovery.type).toBe("recovery_exercise");
+    expect(recovery.name).toBe("chest_stretch");
+    expect(recovery.hold_seconds).toBe(30);
+    expect(recovery.reps).toBe(2);
+    expect(recovery.sides).toBe("both");
   });
 
   it("AST header fields match source", () => {
@@ -937,14 +932,11 @@ PHASES
     ) as Record<string, unknown>;
     const activities = cooldownBlock.activities as Record<string, unknown>[];
 
-    const recovery = activities.find((a) => a.type === "recovery");
+    // Bare cooldown exercises are flat recovery_exercise activities (Elixir parity)
+    const recovery = activities.find((a) => a.type === "recovery_exercise");
     expect(recovery).toBeDefined();
-    // Synthesised cooldown stretches are normalised to category "stretching"
-    expect(recovery!.category).toBe("stretching");
-    const prescription = recovery!.prescription as Record<string, unknown>;
-    const exercises = prescription.exercises as Record<string, unknown>[];
-    expect(exercises[0].name).toBe("hamstring_stretch");
-    expect(exercises[0].sides).toBe("both");
+    expect(recovery!.name).toBe("hamstring_stretch");
+    expect(recovery!.sides).toBe("both");
   });
 });
 

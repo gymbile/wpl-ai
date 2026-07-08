@@ -446,8 +446,9 @@ PHASES
           chest_stretch 30s x 2 sides both
 `;
     const result = ok(source);
+    // Bare cooldown exercises are flat recovery_exercise activities; pointer is at activities/0
     const r = result.pointerMap.get(
-      "/plan/phases/0/weeks/0/days/0/blocks/0/activities/0/prescription/exercises/0",
+      "/plan/phases/0/weeks/0/days/0/blocks/0/activities/0",
     );
     expect(r).toBeDefined();
     expect(source.slice(r!.from, r!.to)).toContain("chest_stretch");
