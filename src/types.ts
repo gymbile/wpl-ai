@@ -303,6 +303,7 @@ export type Activity =
   | Nutrition
   | Meditation
   | Recovery
+  | BareRecoveryExercise
   | Habit
   | SimpleActivity
   | SubPlan;
@@ -554,6 +555,11 @@ export interface Habit {
   range?: SourceRange;
 }
 
+/** A bare recovery exercise appearing directly inside a cooldown block (no group wrapper). */
+export interface BareRecoveryExercise extends RecoveryExercise {
+  kind: "recovery_exercise";
+}
+
 export interface SimpleActivity {
   kind: "simple";
   name: string;
@@ -737,12 +743,14 @@ export interface AthleteThresholds {
  */
 export interface Repair {
   type:
-    | "skipped_section"        // unknown ALL-CAPS section dropped (section: name)
-    | "skipped_block"          // malformed day-level activity block dropped
-    | "exercise_substitution"  // fuzzy ref correction (from, to, similarity)
-    | "unknown_exercise"       // ref kept verbatim but absent from catalog (ref)
-    | "defaulted_value"        // lenient expect* fabricated a value (expected, got, defaulted_to)
-    | "discarded_modifier";    // simple-activity modifier value dropped
+    | "skipped_section"              // unknown ALL-CAPS section dropped (section: name)
+    | "skipped_block"                // malformed day-level activity block dropped
+    | "exercise_substitution"        // fuzzy ref correction (from, to, similarity)
+    | "unknown_exercise"             // ref kept verbatim but absent from catalog (ref)
+    | "defaulted_value"              // lenient expect* fabricated a value (expected, got, defaulted_to)
+    | "discarded_modifier"           // simple-activity modifier value dropped
+    | "normalized_inline_equipment"  // inline EQUIPMENT list normalized to structured form
+    | "skipped_rule";                // freeform RULE line inside PERSONALIZATION skipped
   message: string;
   line?: number;
   column?: number;

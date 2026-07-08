@@ -794,30 +794,81 @@ function parseRequiresBody(
     skipNewlines(state);
     const tok = currentToken(state);
 
-    if (tok.type === "keyword") {
-      switch (tok.value) {
+    // fix(1b): normalize directive keyword to lowercase before dispatch so
+    // uppercase forms emitted by LLMs (AGE, FITNESS, EQUIPMENT) are accepted.
+    if (tok.type === "keyword" || tok.type === "bare_word") {
+      const rawKw = String(tok.value);
+      const kw = rawKw.toLowerCase();
+      const kwLoc = tok.location;
+
+      switch (kw) {
         case "age": {
           advance(state);
           const min = expectNumber(state);
-          expectRange(state);
-          const max = expectNumber(state);
-          attrs.age_range = [Math.trunc(min), Math.trunc(max)] as [
-            number,
-            number,
-          ];
+          // fix(1b): tolerate single-number form "AGE 45" — treat as {45, 45}.
+          if (currentToken(state).type === "range") {
+            expectRange(state);
+            const max = expectNumber(state);
+            attrs.age_range = [Math.trunc(min), Math.trunc(max)] as [number, number];
+          } else {
+            attrs.age_range = [Math.trunc(min), Math.trunc(min)] as [number, number];
+          }
           continue;
         }
         case "fitness":
           advance(state);
           attrs.fitness_levels = parseEnumList(state);
           continue;
-        case "equipment":
+        case "equipment": {
           advance(state);
-          expectColon(state);
-          skipNewlines(state);
-          expectIndent(state);
-          attrs.equipment = parseEquipmentList(state);
+          // fix(1d-equipment): detect inline form "EQUIPMENT name1 name2 ..." vs
+          // block form "equipment:\n  name (required)". If next token is NOT a
+          // colon, parse the rest of the line as a space-separated list.
+          if (currentToken(state).type === "colon") {
+            expectColon(state);
+            skipNewlines(state);
+            // fix(1d-equipment): only enter indented block if indent is present;
+            // empty "equipment:\n" yields an empty list without consuming next section.
+            if (currentToken(state).type === "indent") {
+              advance(state);
+              attrs.equipment = parseEquipmentList(state);
+            } else {
+              attrs.equipment = [];
+            }
+          } else {
+            // Inline form: consume tokens until newline/dedent/eof as names.
+            // `required` and `optional` keywords are treated as flags for the
+            // preceding item, not as new item names.
+            const equip: Equipment[] = [];
+            for (;;) {
+              const t = currentToken(state);
+              if (t.type !== "bare_word" && t.type !== "keyword") break;
+              const val = String(t.value);
+              // Flag keywords apply to the last pushed item
+              if (val === "required" || val === "optional") {
+                if (equip.length > 0) {
+                  equip[equip.length - 1]!.required = val === "required";
+                }
+                advance(state);
+                continue;
+              }
+              const fromOff = currentOffset(state);
+              advance(state);
+              equip.push({
+                name: val,
+                required: true,
+                alternatives: null,
+                range: makeRange(state, fromOff),
+              });
+            }
+            attrs.equipment = equip;
+            addRepair(state, {
+              type: "normalized_inline_equipment",
+              message: `Inline EQUIPMENT list normalized to structured form (${equip.length} items)`,
+            });
+          }
           continue;
+        }
         case "contraindication": {
           const contra = parseContraindication(state);
           const contras =
@@ -837,8 +888,6 @@ function parseRequiresBody(
           // Collect the unrecognised directive text for the error message.
           // Consume tokens until end-of-line so parsing can resume at the
           // next directive rather than silently terminating the block.
-          const directiveName = String(tok.value);
-          const directiveLoc = tok.location;
           advance(state); // skip the unrecognised keyword
           const rest: string[] = [];
           while (true) {
@@ -847,12 +896,12 @@ function parseRequiresBody(
             rest.push(String(t.value ?? ""));
             advance(state);
           }
-          const lineText = rest.length > 0 ? `${directiveName} ${rest.join(" ")}` : directiveName;
+          const lineText = rest.length > 0 ? `${rawKw} ${rest.join(" ")}` : rawKw;
           addError(
             state,
             invalidStructure(
               `Unknown REQUIRES directive: '${lineText}'. Recognized: contraindication, fitness, equipment, age, time_commitment.`,
-              directiveLoc,
+              kwLoc,
             ),
           );
           continue;
@@ -869,29 +918,9 @@ function parseRequiresBody(
       break;
     }
 
-    // Any other token (e.g. bare_word used as an unknown directive) —
-    // collect the line as an unknown directive and emit an error.
-    {
-      const directiveName = String(tok.value ?? "");
-      const directiveLoc = tok.location;
-      advance(state); // skip the unknown token
-      const rest: string[] = [];
-      while (true) {
-        const t = currentToken(state);
-        if (t.type === "newline" || t.type === "dedent" || t.type === "eof") break;
-        rest.push(String(t.value ?? ""));
-        advance(state);
-      }
-      const lineText = rest.length > 0 ? `${directiveName} ${rest.join(" ")}` : directiveName;
-      addError(
-        state,
-        invalidStructure(
-          `Unknown REQUIRES directive: '${lineText}'. Recognized: contraindication, fitness, equipment, age, time_commitment.`,
-          directiveLoc,
-        ),
-      );
-      continue;
-    }
+    // Drain any other unexpected token to avoid desyncing.
+    advance(state);
+    continue;
   }
 
   return attrs;
@@ -904,7 +933,9 @@ function parseEquipmentList(state: ParseState): Equipment[] {
     skipNewlines(state);
     const tok = currentToken(state);
 
-    if (tok.type === "bare_word") {
+    // fix(1a): accept keyword tokens in addition to bare_word — equipment
+    // names like "bodyweight" are lexed as :keyword tokens by the lexer.
+    if (tok.type === "bare_word" || tok.type === "keyword") {
       const fromOffset = currentOffset(state);
       const name = tok.value as string;
       advance(state);
@@ -1339,6 +1370,25 @@ function parsePersonalizationBody(state: ParseState): {
           expectIndent(state);
           rules = rules.concat(parseRules(state));
           continue;
+        case "RULE": {
+          // fix(1d-rules): freeform "RULE when ...: ..." lines emitted directly
+          // inside PERSONALIZATION (no enclosing RULES: block). Drain the line
+          // and emit a skipped_rule repair rather than exiting early.
+          const lineParts: string[] = [String(tok.value)];
+          advance(state);
+          while (true) {
+            const t = currentToken(state);
+            if (t.type === "newline" || t.type === "dedent" || t.type === "eof") break;
+            lineParts.push(String(t.value ?? ""));
+            advance(state);
+          }
+          addRepair(state, {
+            type: "skipped_rule",
+            raw: lineParts.join(" "),
+            message: `Freeform RULE line skipped (not structured WHEN condition): "${lineParts.join(" ")}"`,
+          });
+          continue;
+        }
         default:
           break;
       }
@@ -2179,7 +2229,17 @@ function parseDayBody(state: ParseState): {
         blocks.push(parseBlock(state));
         continue;
       }
+    }
 
+    // fix(1c): "meals:" bare_word day block — phase_nutrition subagent emits
+    // one meals block per day with multiple MEAL entries. Compile to a single
+    // nutrition block whose activities are one Nutrition per MEAL.
+    if (tok.type === "bare_word" && tok.value === "meals") {
+      blocks.push(parseMealsBlock(state));
+      continue;
+    }
+
+    if (tok.type === "keyword") {
       // Tolerate activity-type keywords (cardio, nutrition, meditation,
       // recovery, habit) when written as bare blocks at day-body level.
       // The well-formed shape is `<activity> <args>:` inside a block
@@ -2247,6 +2307,136 @@ function parseSchedulePref(value: string): SchedulePref {
 function parseScheduleFlex(value: string): ScheduleFlex {
   if (SCHEDULE_FLEX_SET.has(value)) return value as ScheduleFlex;
   return "flexible";
+}
+
+// ---------------------------------------------------------------------------
+// fix(1c): meals: block — phase_nutrition subagent emits one meals block per
+// day containing multiple MEAL entries. Compiled to a nutrition Block.
+// ---------------------------------------------------------------------------
+
+function parseMealsBlock(state: ParseState): Block {
+  const fromOffset = currentOffset(state);
+  advance(state); // skip "meals"
+  expectColon(state);
+  skipNewlines(state);
+  if (currentToken(state).type === "indent") {
+    advance(state);
+  }
+  const activities = parseMealEntries(state);
+  return {
+    type: "nutrition",
+    structure: null,
+    rounds: null,
+    rest_between_rounds: null,
+    activities,
+    range: makeRange(state, fromOffset),
+  };
+}
+
+function parseMealEntries(state: ParseState): Activity[] {
+  const activities: Activity[] = [];
+  for (;;) {
+    skipNewlines(state);
+    const tok = currentToken(state);
+    if (tok.type === "keyword" && tok.value === "MEAL") {
+      activities.push(parseMealEntry(state));
+      continue;
+    }
+    if (tok.type === "dedent") {
+      advance(state);
+      break;
+    }
+    if (tok.type === "eof") break;
+    // Hard stop: outer structural keywords mean we've left the meals block.
+    if (tok.type === "keyword" && ["DAY", "WEEK", "PHASE"].includes(String(tok.value))) break;
+    // ponytail: tolerant recovery — skip unrecognised tokens so a stray
+    // token cannot truncate remaining MEALs.
+    advance(state);
+  }
+  return activities;
+}
+
+function parseMealEntry(state: ParseState): Nutrition {
+  const fromOffset = currentOffset(state);
+  advance(state); // skip "MEAL"
+  const categoryRaw = expectBareWord(state);
+  expectColon(state);
+  const name = expectBareWord(state);
+  skipNewlines(state);
+  if (currentToken(state).type === "indent") {
+    advance(state);
+  }
+  const attrs = parseMealBody(state);
+  void name; // food name ignored; category drives display in compiler
+  return {
+    kind: "nutrition",
+    category: normalizeMealCategory(categoryRaw),
+    timing: null,
+    macros: (attrs.macros as Macros) ?? null,
+    calories: (attrs.calories as [number, number]) ?? null,
+    suggestions: null,
+    range: makeRange(state, fromOffset),
+  };
+}
+
+function parseMealBody(state: ParseState): Record<string, unknown> {
+  const attrs: Record<string, unknown> = {};
+  for (;;) {
+    skipNewlines(state);
+    const tok = currentToken(state);
+    const tokVal = String(tok.value ?? "").toUpperCase();
+
+    if ((tok.type === "keyword" || tok.type === "bare_word") &&
+        (tokVal === "PROTEIN" || tokVal === "CARBS" || tokVal === "FAT")) {
+      advance(state);
+      const low = expectNumber(state);
+      const high = consumeOptionalRangeHigh(state) ?? low;
+      // skip optional unit bare_word (g, kcal)
+      if (currentToken(state).type === "bare_word") advance(state);
+      const macros: Macros = (attrs.macros as Macros) ?? { protein: null, carbs: null, fat: null };
+      const key = tokVal === "PROTEIN" ? "protein" : tokVal === "CARBS" ? "carbs" : "fat";
+      if (key === "protein") macros.protein = [Math.trunc(low), Math.trunc(high), "g"] as MacroRange;
+      else if (key === "carbs") macros.carbs = [Math.trunc(low), Math.trunc(high), "g"] as MacroRange;
+      else macros.fat = [Math.trunc(low), Math.trunc(high), "g"] as MacroRange;
+      attrs.macros = macros;
+      continue;
+    }
+
+    if ((tok.type === "keyword" || tok.type === "bare_word") && tokVal === "CALORIES") {
+      advance(state);
+      const low = expectNumber(state);
+      const high = consumeOptionalRangeHigh(state) ?? low;
+      if (currentToken(state).type === "bare_word") advance(state);
+      attrs.calories = [Math.trunc(low), Math.trunc(high)] as [number, number];
+      continue;
+    }
+
+    if (tok.type === "dedent") {
+      advance(state);
+      break;
+    }
+    if (tok.type === "eof") break;
+    // Hard stop: outer structural keywords mean we've left the meal body.
+    if (tok.type === "keyword" && ["DAY", "WEEK", "PHASE", "MEAL"].includes(String(tok.value))) break;
+    // ponytail: drain unknown macro keywords (typos, FIBER, SUGAR) token-by-token
+    // so a stray token cannot truncate remaining MEALs.
+    advance(state);
+  }
+  return attrs;
+}
+
+/** Consume a `..` range token and the following number, returning the high value or null. */
+function consumeOptionalRangeHigh(state: ParseState): number | null {
+  if (currentToken(state).type === "range") {
+    advance(state);
+    return expectNumber(state);
+  }
+  return null;
+}
+
+/** Normalize meal category token to lowercase canonical form. */
+function normalizeMealCategory(raw: string): string {
+  return raw.toLowerCase();
 }
 
 // ---------------------------------------------------------------------------
@@ -2362,15 +2552,22 @@ function parseBlockBody(
 // Cooldown inline cardio detection + parsing
 // ---------------------------------------------------------------------------
 
+// fix(1d-B1): expanded cardio modality set for cooldown pattern matching.
+// "jogging", "biking", "spinning" were missing; add them alongside the grammar list.
+const COOLDOWN_CARDIO_MODALITY_SET = new Set([
+  "running", "walking", "jogging", "cycling", "rowing", "elliptical",
+  "swimming", "jump_rope", "hiking", "biking", "spinning",
+]);
+
 /**
  * Returns true if the current token stream matches the inline cardio pattern:
- *   bare_word  number  time_unit_bare_word  (newline | dedent | eof)
+ *   <known_cardio_modality>  number  time_unit  (newline | dedent | eof)
  * (i.e. `jogging 10m` or `walking 5m`) — which should be parsed as an
  * inline cardio activity in a cooldown block rather than as a recovery exercise.
  *
- * This is deliberately narrow: it only matches when the duration is the LAST
- * thing on the line (no trailing `x<reps>` or `sides` tokens), which avoids
- * misclassifying recovery exercises like `chest_stretch 30s x2 sides both`.
+ * fix(1d-B1): restricted to known cardio modality names so that recovery
+ * exercises like `breathing_4_7_8 30s` (same syntactic shape) are NOT
+ * misclassified as cardio.
  */
 function isCooldownCardioPattern(state: ParseState): boolean {
   const t0 = state.tokens[state.pos];
@@ -2378,10 +2575,12 @@ function isCooldownCardioPattern(state: ParseState): boolean {
   const t2 = state.tokens[state.pos + 2];
   const t3 = state.tokens[state.pos + 3];
   if (!t0 || !t1 || !t2) return false;
-  if (t0.type !== "bare_word") return false;
+  // fix(1d-B1): pos 0 must be a known cardio modality name.
+  if (t0.type !== "bare_word" && t0.type !== "keyword") return false;
+  if (!COOLDOWN_CARDIO_MODALITY_SET.has(String(t0.value))) return false;
   if (t1.type !== "number") return false;
   // t2 must be a time-unit bare_word (m, s, h, d, minutes, seconds, hours)
-  if (t2.type !== "bare_word") return false;
+  if (t2.type !== "bare_word" && t2.type !== "keyword") return false;
   if (!TIME_UNIT_SHORT_SET.has(String(t2.value))) return false;
   // t3 must be newline, dedent, or eof — nothing else after the duration.
   // If there's more (e.g. "x2", "sides"), it's a recovery exercise.
@@ -2555,6 +2754,14 @@ function parseExerciseOrSimpleActivity(state: ParseState): Activity {
     };
   }
 
+  // fix(6): inline named cardio: `<modality> continuous:` (or intervals/fartlek)
+  // introduces an indented `total ... / zone ...` body. Subagents emit this shape
+  // inside main blocks for steady-state cardio. Without this, the `continuous:`
+  // word and the `total`/`zone` body leak as three spurious simple activities.
+  if (isInlineCardioAhead(state)) {
+    return parseNamedInlineCardio(name, state, fromOffset);
+  }
+
   // Simple activity without parameters, check for optional inline duration
   const duration = parseOptionalInlineDuration(state);
 
@@ -2563,6 +2770,82 @@ function parseExerciseOrSimpleActivity(state: ParseState): Activity {
     name,
     duration,
     params: null,
+    range: makeRange(state, fromOffset),
+  };
+}
+
+// Cardio-type words that can follow a modality to introduce an inline cardio block.
+const INLINE_CARDIO_TYPES = new Set(["continuous", "intervals", "fartlek"]);
+
+/** Returns true if next token is a cardio-type word followed by a colon. */
+function isInlineCardioAhead(state: ParseState): boolean {
+  const t0 = currentToken(state);
+  const t1 = state.tokens[state.pos + 1];
+  return (
+    (t0.type === "bare_word" || t0.type === "keyword") &&
+    typeof t0.value === "string" &&
+    INLINE_CARDIO_TYPES.has(t0.value) &&
+    t1 !== undefined &&
+    t1.type === "colon"
+  );
+}
+
+/**
+ * Parse `<cardio_type>:` + indented body into a Cardio activity.
+ * The modality was already consumed by the caller.
+ */
+function parseNamedInlineCardio(
+  modality: string,
+  state: ParseState,
+  fromOffset: number,
+): Cardio {
+  const cardioTypeStr = String(currentToken(state).value);
+  advance(state); // skip cardio_type (continuous/intervals/fartlek)
+  expectColon(state);
+  skipNewlines(state);
+  if (currentToken(state).type === "indent") {
+    advance(state);
+  }
+
+  const attrs = parseCardioBody(state);
+
+  const cardioType: CardioType = CARDIO_TYPE_SET.has(cardioTypeStr)
+    ? (cardioTypeStr as CardioType)
+    : "continuous";
+
+  let intensity = (attrs.intensity as Intensity | undefined) ?? null;
+  const zoneModel = attrs.zone_model as import("./types.js").IntensityZoneModel | undefined;
+  if (zoneModel) {
+    intensity = intensity
+      ? { ...intensity, zone_model: zoneModel }
+      : {
+          type: "heart_rate_zone",
+          value: (attrs.zone as number | undefined) ?? null,
+          bounds: null,
+          zone_model: zoneModel,
+          range: makeRange(state, fromOffset),
+        };
+  }
+
+  // If only a zone number was given (no explicit intensity block), build an
+  // intensity node from it so the compiler can emit prescription.intensity.zone.
+  if (!intensity && attrs.zone !== undefined) {
+    intensity = {
+      type: "heart_rate_zone",
+      value: attrs.zone as number,
+      bounds: null,
+      range: makeRange(state, fromOffset),
+    };
+  }
+
+  return {
+    kind: "cardio",
+    modality,
+    cardio_type: cardioType,
+    total_duration: (attrs.total_duration as Duration) ?? null,
+    zone: (attrs.zone as number) ?? null,
+    intensity,
+    intervals: (attrs.intervals as IntervalPattern) ?? null,
     range: makeRange(state, fromOffset),
   };
 }
@@ -2651,6 +2934,15 @@ const REPS_MODIFIER_FOLLOW = new Set([
   "bodyweight",
 ]);
 
+// fix(1d-A4): compound qualifier tokens that may follow a reps number.
+// Without this, fused tokens like `each_side` / `each_leg` leaked as spurious
+// simple activities. Also covers the individual words for A1 patterns.
+const REPS_QUALIFIER_WORDS = new Set([
+  "each", "per", "side", "sides", "leg", "legs", "arm", "arms",
+  "both", "left", "right",
+  "each_side", "each_leg", "per_side", "per_leg", "each_arm", "per_arm",
+]);
+
 function parseRepsSpec(state: ParseState): { reps: RepsSpec; amrap: boolean } {
   // Accept AMRAP / amrap as a bare reps token (schema v1.6.0+).
   const tok = currentToken(state);
@@ -2675,6 +2967,15 @@ function parseRepsSpec(state: ParseState): { reps: RepsSpec; amrap: boolean } {
     ) {
       advance(state);
       const target = expectNumber(state);
+      // fix(1d-A2): consume optional short unit after target value (e.g. `target 30s`).
+      const targetUnit = currentToken(state);
+      if (
+        (targetUnit.type === "bare_word" || targetUnit.type === "keyword") &&
+        typeof targetUnit.value === "string" &&
+        ["s", "m", "h", "kg", "lbs", "reps", "sec", "seconds", "min", "minutes", "percentage_1rm"].includes(targetUnit.value)
+      ) {
+        advance(state);
+      }
       return {
         reps: [Math.trunc(first), Math.trunc(second), Math.trunc(target)],
         amrap: false,
@@ -2707,32 +3008,37 @@ function parseRepsSpec(state: ParseState): { reps: RepsSpec; amrap: boolean } {
     return { reps: [Math.trunc(first), Math.trunc(second)], amrap: false };
   }
 
-  // Tolerate trailing time-unit suffix on the reps number ("20s", "2m") —
-  // BUT only when followed by an exercise modifier keyword. Models often
-  // write `plank 3x30s rpe 6 rest 60 seconds` meaning "3 sets × 30 sec at
-  // RPE 6." Without consuming the `s`, the modifier keywords leak into
-  // parent parsing and silently truncate subsequent WEEK blocks.
+  // Tolerate trailing time-unit suffix on the reps number ("20s", "30 seconds") —
+  // Models often write `plank 3x30s rpe 6` or `side_plank 3x20 seconds each side`.
+  // Without consuming the unit token, it leaks into block-body parsing and
+  // silently truncates downstream WEEK blocks.
   //
-  // When `s`/`m` is followed by anything else (newline, indent, dedent),
-  // it stays in the stream so existing conformance behaviour (where a
-  // standalone `s` after `NxN` becomes its own simple activity) is
-  // preserved.
+  // fix(1d-A1/A2/A3): consume the unit when followed by:
+  //   - a REPS_MODIFIER_FOLLOW keyword (existing behaviour)
+  //   - a REPS_QUALIFIER_WORDS token like "each", "each_side", "both" (A1, A4)
+  //   - end-of-line / end-of-stream (A3): the unit is the last token
   const next = currentToken(state);
   const isShortUnit =
-    next.type === "bare_word" && (next.value === "s" || next.value === "m");
+    (next.type === "bare_word" || next.type === "keyword") &&
+    typeof next.value === "string" &&
+    ["s", "m", "h", "sec", "seconds", "minutes", "hours"].includes(next.value);
   const isLongUnit =
     next.type === "keyword" &&
     typeof next.value === "string" &&
     (next.value === "seconds" || next.value === "minutes" || next.value === "hours");
   if (isShortUnit || isLongUnit) {
     const after = state.tokens[state.pos + 1];
+    const afterType = after?.type;
+    const afterVal = typeof after?.value === "string" ? after.value : "";
     if (
-      after &&
-      after.type === "keyword" &&
-      typeof after.value === "string" &&
-      REPS_MODIFIER_FOLLOW.has(after.value)
+      // A1/A4: qualifier word follows (each, each_side, etc.)
+      ((afterType === "bare_word" || afterType === "keyword") && REPS_QUALIFIER_WORDS.has(afterVal)) ||
+      // modifier keyword follows (existing behaviour)
+      (afterType === "keyword" && REPS_MODIFIER_FOLLOW.has(afterVal)) ||
+      // A3: end-of-exercise-line — unit is the last token before newline/dedent/eof
+      !after || afterType === "newline" || afterType === "dedent" || afterType === "eof"
     ) {
-      advance(state);
+      advance(state); // consume the unit
     }
   }
 
@@ -2799,12 +3105,36 @@ function consumeSimpleActivityModifiers(state: ParseState): void {
   }
 }
 
+/** fix(1d-A4): Skip trailing exercise qualifier words (each, each_side, per_leg, etc.)
+ * that follow a reps spec. These tokens have no field in the Exercise schema and
+ * must be consumed here; otherwise they leak into parseBlockBody and become
+ * spurious simple activities ("each", "Each Side", etc.).
+ */
+function skipExerciseQualifiers(state: ParseState): void {
+  for (;;) {
+    const tok = currentToken(state);
+    if (
+      (tok.type === "bare_word" || tok.type === "keyword") &&
+      typeof tok.value === "string" &&
+      REPS_QUALIFIER_WORDS.has(tok.value)
+    ) {
+      advance(state);
+    } else {
+      break;
+    }
+  }
+}
+
 function parseExerciseModifiers(
   state: ParseState,
 ): Record<string, unknown> {
   const modifiers: Record<string, unknown> = {};
 
   for (;;) {
+    // fix(1d-A4): skip qualifier words before (and between) modifier keywords
+    // so they don't leak into parseBlockBody as spurious activities.
+    skipExerciseQualifiers(state);
+
     const tok = currentToken(state);
     if (tok.type !== "keyword") break;
 
@@ -3702,6 +4032,18 @@ function parseRecoveryExercise(state: ParseState): RecoveryExercise {
     sides = RECOVERY_SIDES_SET.has(sideStr)
       ? (sideStr as RecoverySides)
       : (GRAMMAR.recovery_sides[0] as RecoverySides);
+  } else {
+    // fix(1d-B2): bare both/left/right after reps without the `sides` keyword
+    // (e.g. `breathing_4_7_8 30s x1 both`). Without this the token leaked
+    // into parseBlockBody and became a spurious recovery_exercise named "both".
+    const sideTok = currentToken(state);
+    if (
+      (sideTok.type === "keyword" || sideTok.type === "bare_word") &&
+      RECOVERY_SIDES_SET.has(String(sideTok.value))
+    ) {
+      sides = String(sideTok.value) as RecoverySides;
+      advance(state);
+    }
   }
 
   // v1.6.0 extensions: modality, intensity (→ intensity_rpe), body (→ body_part)
@@ -3833,15 +4175,13 @@ function parsePnfContinuation(state: ParseState): PnfParams | null {
   };
 }
 
-/** Wraps a recovery exercise as a Recovery Activity for cooldown blocks */
-function parseRecoveryExerciseAsActivity(state: ParseState): Recovery {
+/** Parses a bare recovery exercise in a cooldown block as a top-level activity (not wrapped in a Recovery group). */
+function parseRecoveryExerciseAsActivity(state: ParseState): import("./types.js").BareRecoveryExercise {
   const fromOffset = currentOffset(state);
   const exercise = parseRecoveryExercise(state);
   return {
-    kind: "recovery",
-    category: "cooldown",
-    duration: { value: 0, unit: "minutes" },
-    exercises: [exercise],
+    ...exercise,
+    kind: "recovery_exercise",
     range: makeRange(state, fromOffset),
   };
 }

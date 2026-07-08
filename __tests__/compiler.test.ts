@@ -1297,7 +1297,7 @@ PHASES
 // ---------------------------------------------------------------------------
 
 describe("Recovery activities compilation", () => {
-  it("compiles recovery exercises in cooldown block as recovery activity", () => {
+  it("compiles bare recovery exercises in cooldown block as flat recovery_exercise activities", () => {
     const source = `PLAN "Recovery Test"
 TYPE workout
 
@@ -1316,9 +1316,9 @@ PHASES
     const activities = blocks[0].activities as Record<string, unknown>[];
     const activity = activities[0];
 
-    expect(activity.type).toBe("recovery");
-    // Synthesised cooldown stretches are normalised to category "stretching"
-    expect(activity.category).toBe("stretching");
+    // Bare cooldown exercises emit as flat recovery_exercise (matching Elixir twin)
+    expect(activity.type).toBe("recovery_exercise");
+    expect(activity.name).toBe("hamstring_stretch");
   });
 
   it("compiles recovery exercise hold_seconds and reps", () => {
@@ -1339,13 +1339,11 @@ PHASES
     const blocks = days[0].blocks as Record<string, unknown>[];
     const activities = blocks[0].activities as Record<string, unknown>[];
     const activity = activities[0];
-    const prescription = activity.prescription as Record<string, unknown>;
-    const exercises = prescription.exercises as Record<string, unknown>[];
-    const ex = exercises[0];
-    expect(ex.type).toBe("recovery_exercise");
-    expect(ex.name).toBe("hamstring_stretch");
-    expect(ex.hold_seconds).toBe(30);
-    expect(ex.reps).toBe(2);
+    // Bare cooldown exercises are now flat recovery_exercise activities
+    expect(activity.type).toBe("recovery_exercise");
+    expect(activity.name).toBe("hamstring_stretch");
+    expect(activity.hold_seconds).toBe(30);
+    expect(activity.reps).toBe(2);
   });
 
   it("compiles recovery exercise sides", () => {
@@ -1365,9 +1363,7 @@ PHASES
     const days = weeks[0].days as Record<string, unknown>[];
     const blocks = days[0].blocks as Record<string, unknown>[];
     const activities = blocks[0].activities as Record<string, unknown>[];
-    const prescription = activities[0].prescription as Record<string, unknown>;
-    const exercises = prescription.exercises as Record<string, unknown>[];
-    expect(exercises[0].sides).toBe("both");
+    expect(activities[0].sides).toBe("both");
   });
 
   it("compiles recovery activity with category and duration", () => {

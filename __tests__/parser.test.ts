@@ -183,14 +183,13 @@ PHASES
     const cooldown = doc.phases[0].weeks[0].days[0].blocks[2];
     expect(cooldown.activities).toHaveLength(1);
     const act = cooldown.activities[0];
-    expect(act.kind).toBe("recovery");
-    if (act.kind === "recovery") {
-      expect(act.exercises).toHaveLength(1);
-      const ex = act.exercises![0];
-      expect(ex.name).toBe("chest_stretch");
-      expect(ex.hold_seconds).toBe(30);
-      expect(ex.reps).toBe(2);
-      expect(ex.sides).toBe("both");
+    // Bare cooldown exercises parse as flat recovery_exercise activities (Elixir parity)
+    expect(act.kind).toBe("recovery_exercise");
+    if (act.kind === "recovery_exercise") {
+      expect(act.name).toBe("chest_stretch");
+      expect(act.hold_seconds).toBe(30);
+      expect(act.reps).toBe(2);
+      expect(act.sides).toBe("both");
     }
   });
 });
@@ -1098,45 +1097,47 @@ PHASES
   it("parses recovery exercise with sides both", () => {
     const doc = cooldownDoc("chest_stretch 30s x2 sides both");
     const act = doc.phases[0].weeks[0].days[0].blocks[0].activities[0];
-    expect(act.kind).toBe("recovery");
-    if (act.kind === "recovery") {
-      expect(act.exercises![0].name).toBe("chest_stretch");
-      expect(act.exercises![0].hold_seconds).toBe(30);
-      expect(act.exercises![0].reps).toBe(2);
-      expect(act.exercises![0].sides).toBe("both");
+    // Bare cooldown exercises are flat recovery_exercise activities (Elixir parity)
+    expect(act.kind).toBe("recovery_exercise");
+    if (act.kind === "recovery_exercise") {
+      expect(act.name).toBe("chest_stretch");
+      expect(act.hold_seconds).toBe(30);
+      expect(act.reps).toBe(2);
+      expect(act.sides).toBe("both");
     }
   });
 
   it("parses recovery exercise with sides left", () => {
     const doc = cooldownDoc("hip_flexor_stretch 30s x2 sides left");
     const act = doc.phases[0].weeks[0].days[0].blocks[0].activities[0];
-    if (act.kind === "recovery") {
-      expect(act.exercises![0].sides).toBe("left");
+    if (act.kind === "recovery_exercise") {
+      expect(act.sides).toBe("left");
     }
   });
 
   it("parses recovery exercise with sides right", () => {
     const doc = cooldownDoc("quad_stretch 20s x3 sides right");
     const act = doc.phases[0].weeks[0].days[0].blocks[0].activities[0];
-    if (act.kind === "recovery") {
-      expect(act.exercises![0].sides).toBe("right");
+    if (act.kind === "recovery_exercise") {
+      expect(act.sides).toBe("right");
     }
   });
 
   it("parses recovery exercise without sides", () => {
     const doc = cooldownDoc("hamstring_stretch 30s x2");
     const act = doc.phases[0].weeks[0].days[0].blocks[0].activities[0];
-    if (act.kind === "recovery") {
-      expect(act.exercises![0].sides).toBeNull();
+    if (act.kind === "recovery_exercise") {
+      expect(act.sides).toBeNull();
     }
   });
 
-  it("wraps cooldown exercises as recovery activities", () => {
+  it("bare cooldown exercises emit as flat recovery_exercise activities", () => {
     const doc = cooldownDoc("chest_stretch 30s x2 sides both");
     const act = doc.phases[0].weeks[0].days[0].blocks[0].activities[0];
-    expect(act.kind).toBe("recovery");
-    if (act.kind === "recovery") {
-      expect(act.category).toBe("cooldown");
+    // Previously wrapped in a Recovery container; now flat (Elixir parity)
+    expect(act.kind).toBe("recovery_exercise");
+    if (act.kind === "recovery_exercise") {
+      expect(act.name).toBe("chest_stretch");
     }
   });
 });
@@ -1950,7 +1951,8 @@ PHASES
     const block = doc.phases[0].weeks[0].days[0].blocks[0];
     expect(block.activities).toHaveLength(3);
     for (const act of block.activities) {
-      expect(act.kind).toBe("recovery");
+      // Bare cooldown exercises are flat recovery_exercise activities (Elixir parity)
+      expect(act.kind).toBe("recovery_exercise");
     }
   });
 });

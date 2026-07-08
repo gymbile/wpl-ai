@@ -36,8 +36,9 @@ PHASES
           dumbbell_row 3x10 weight 10 kg rest 60 seconds
           overhead_press 3x8..10 weight 8 kg rest 90 seconds
         cooldown:
-          chest_stretch 30s x2 sides both
-          shoulder_stretch 30s x2 sides both`,
+          recovery stretching:
+            chest_stretch 30s x2 sides both
+            shoulder_stretch 30s x2 sides both`,
   },
   {
     id: "hiit-circuit-personalization",
@@ -88,8 +89,9 @@ PHASES
           push_up 3x10 rest 20 seconds
           burpee 3x8 rest 20 seconds
         cooldown:
-          hamstring_stretch 30s x2 sides both
-          hip_flexor_stretch 30s x2 sides both`,
+          recovery stretching:
+            hamstring_stretch 30s x2 sides both
+            hip_flexor_stretch 30s x2 sides both`,
   },
   {
     id: "holistic-wellness-week",
@@ -127,8 +129,9 @@ PHASES
             protein 20..30
             carbs 30..50
         cooldown:
-          hamstring_stretch 30s x2 sides both
-          chest_stretch 30s x2 sides both
+          recovery stretching:
+            hamstring_stretch 30s x2 sides both
+            chest_stretch 30s x2 sides both
 
       # Recovery Tuesday: yoga-style recovery + hydration habit
       DAY Tuesday active_recovery 30m "Recovery Tuesday":
@@ -154,7 +157,8 @@ PHASES
             duration 5 minutes
             guided false
         cooldown:
-          calf_stretch 30s x2 sides both`,
+          recovery stretching:
+            calf_stretch 30s x2 sides both`,
   },
   {
     id: "nutrition-with-timing",

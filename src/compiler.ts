@@ -631,6 +631,8 @@ function compileActivity(
       return compileMeditation(activity, index, ctx);
     case "recovery":
       return compileRecovery(activity, index, ctx);
+    case "recovery_exercise":
+      return compileRecoveryExercise(activity, index);
     case "habit":
       return compileHabit(activity, index, ctx);
     case "simple":
